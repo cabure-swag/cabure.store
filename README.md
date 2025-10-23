@@ -1,1 +1,2 @@
-# cabure.store
+# CABURE — Full (Supabase + Google + MP por marca + Tickets)
+Ver instrucciones en la conversación. Variables: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY. Ejecutar supabase/schema.sql. Otorgar admin con UPDATE profiles ...
