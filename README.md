@@ -1,2 +1,2 @@
-# CABURE — Full (Supabase + Google + MP por marca + Tickets)
-Ver instrucciones en la conversación. Variables: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY. Ejecutar supabase/schema.sql. Otorgar admin con UPDATE profiles ...
+# CABUREE Analytics build
+Incluye /admin/analytics y /vendedor/analytics, export CSV y navbar con avatar. Requiere bucket público `media` si más tarde agregás cargas de imágenes.
