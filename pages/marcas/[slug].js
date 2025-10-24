@@ -76,7 +76,7 @@ export default function Brand(){
         <div><label>Imagen (archivo)</label><input className="input" name="image" type="file" accept="image/*"/></div>
         <div style={{gridColumn:'1/-1'}}><button className="btn">Crear</button></div>
       </form>
-      <p className="small">Imágenes guardadas en el bucket público <span className="badge">media</span>.</p>
+      <p className="small">Imágenes en bucket público <span className='badge'>media</span>.</p>
     </div>)}
 
     <div className="card" style={{marginTop:16}}>
