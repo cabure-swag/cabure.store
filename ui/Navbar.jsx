@@ -9,16 +9,15 @@ const pic=user?.user_metadata?.picture;
 return(<header className='nav'><div className='nav-inner'>
   <a href='/marcas' className='brand'>CABURE.STORE</a>
   <nav className='menu'>
-    <a className='badge' href='/soporte'>Soporte</a>
     {(role==='vendor'||role==='admin')&&<a className='badge' href='/vendedor'>Vendedor</a>}
     {role==='admin'&&<a className='badge' href='/admin'>Admin</a>}
-    {!user?<button className='btn-ghost' onClick={signIn}>Iniciar sesión (Google)</button>:<div className={`dropdown ${open?'open':''}`}><button className='btn-ghost' onClick={()=>setOpen(v=>!v)}>{pic?<img className='avatar' src={pic} alt='avatar'/>:<span className='badge'>Cuenta</span>}</button><div className='dropdown-menu' ref={dd}>
+    {!user?<button className='btn-ghost' onClick={signIn}>Iniciar sesión (Google)</button>:<div className={`dropdown ${open?'open':''}`} ref={dd}><button className='btn-ghost' onClick={()=>setOpen(v=>!v)}>{pic?<img className='avatar' src={pic} alt='avatar'/>:<span className='badge'>Cuenta</span>}</button><div className='dropdown-menu'>
       <div className='small' style={{padding:'6px 10px'}}>Hola, {user.email}</div>
       <a href='/compras'>Mis Compras</a>
       <a href='/perfil'>Mi perfil</a>
       <a href='/soporte'>Soporte</a>
-      {(role==='vendor'||role==='admin')&&<a href='/vendedor/analytics'>Analytics vendedor</a>}
-      {role==='admin'&&<a href='/admin/analytics'>Analytics admin</a>}
+      {(role==='vendor'||role==='admin')&&<a href='/vendedor/metricas'>Métricas vendedor</a>}
+      {role==='admin'&&<a href='/admin/metricas'>Métricas admin</a>}
       <hr style={{border:'none',borderTop:'1px solid var(--line)',margin:'8px 0'}}/>
       <button onClick={signOut}>Cerrar sesión</button>
     </div></div>}

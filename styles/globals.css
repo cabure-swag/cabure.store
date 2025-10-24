@@ -34,6 +34,8 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
 .kpi .big{font-size:22px;font-weight:900}
 .ticker{display:flex;overflow:hidden;white-space:nowrap;border-bottom:1px solid var(--line);background:#0c0e14}
 .ticker .track{display:inline-block;padding:12px 0;animation:marquee 18s linear infinite}
-.ticker img{height:28px;opacity:.95;margin:0 24px;filter:grayscale(.2);transition:opacity .15s}
-.ticker img:hover{opacity:1}
+.ticker .slot{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:999px;background:#10121a;border:1px solid var(--line);margin:0 20px}
+.ticker img{height:40px;width:40px;border-radius:999px;object-fit:cover;border:1px solid var(--line)}
 @keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.mt{margin-top:12px}
+.mb{margin-bottom:12px}

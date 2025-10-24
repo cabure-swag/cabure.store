@@ -31,7 +31,7 @@ export default function Brand(){
   async function onAddProduct(e){
     e.preventDefault();
     const f=new FormData(e.currentTarget);
-    const file=f.get('image'); let image_url=f.get('image_url')||null;
+    const file=f.get('image'); let image_url=null;
     if(file && file.size>0){
       const path=`products/${slug}/${Date.now()}_${file.name}`;
       const {error:e1}=await supabase.storage.from('media').upload(path, file, { upsert:false });
@@ -51,7 +51,7 @@ export default function Brand(){
     <div className="card">
       <div className="row">
         <div style={{display:'flex',alignItems:'center',gap:12}}>
-          <img src={brand.logo_url||'/logo.png'} alt={brand.name} style={{width:60,height:60,objectFit:'contain',borderRadius:12,background:'#0d0f16',border:'1px solid var(--line)'}}/>
+          <img src={brand.logo_url||'/logo.png'} alt={brand.name} style={{width:60,height:60,objectFit:'cover',borderRadius:30,background:'#0d0f16',border:'1px solid var(--line)'}}/>
           <div><h1 style={{margin:0}}>{brand.name}</h1><div className="small">{brand.description}</div>{brand.instagram&&<a className="small" href={brand.instagram} target="_blank" rel="noreferrer">IG</a>}</div>
         </div>
         <div className="badge">{brand.mp_fee?`MP +${brand.mp_fee}%`:'MP % global'}</div>
@@ -74,7 +74,6 @@ export default function Brand(){
         <div><label>Precio</label><input className="input" name="price" type="number" min="0" required/></div>
         <div><label>Stock</label><input className="input" name="stock" type="number" min="0" required/></div>
         <div><label>Imagen (archivo)</label><input className="input" name="image" type="file" accept="image/*"/></div>
-        <div><label>o Imagen (URL)</label><input className="input" name="image_url" placeholder="https://..."/></div>
         <div style={{gridColumn:'1/-1'}}><button className="btn">Crear</button></div>
       </form>
       <p className="small">Imágenes guardadas en el bucket público <span className="badge">media</span>.</p>

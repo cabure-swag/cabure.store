@@ -1,1 +1,24 @@
-export default function LogoTicker({logos=[]}){const items=[...logos,...logos,...logos];return(<div className='ticker'><div className='track' style={{width:'300%'}}>{items.map((src,i)=>(<a key={i} href='/marcas'><img src={src||'/logo.png'} alt='logo'/></a>))}</div></div>)}
+
+export default function LogoTicker({logos=[]}){
+  const N=16; // cantidad de slots
+  const filled = logos.filter(Boolean).slice(0,N);
+  const placeholders = Array.from({length:Math.max(0,N - filled.length)}, (_,i)=>null);
+  const interleaved=[];
+  const maxLen=Math.max(filled.length,placeholders.length);
+  for(let i=0;i<maxLen;i++){
+    if(i<filled.length) interleaved.push(filled[i]);
+    if(i<placeholders.length) interleaved.push(null);
+  }
+  const items=[...interleaved,...interleaved,...interleaved];
+  return (
+    <div className='ticker'>
+      <div className='track' style={{width:'300%'}}>
+        {items.map((src,i)=>(
+          src
+            ? <a key={i} href='/marcas'><img src={src} alt='logo'/></a>
+            : <span key={i} className='slot'></span>
+        ))}
+      </div>
+    </div>
+  );
+}
