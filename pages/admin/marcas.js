@@ -1,103 +1,132 @@
-
+// pages/admin/marcas.js
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
-export default function AdminBrands(){
-  const [role,setRole]=useState(null);
-  const [brands,setBrands]=useState([]);
+function slugify(s) {
+  return (s || '')
+    .toString()
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+}
 
-  useEffect(()=>{(async()=>{
-    const {data:s}=await supabase.auth.getSession();
-    const u=s?.session?.user;if(!u){setRole('guest');return}
-    const {data:me}=await supabase.from('profiles').select('role').eq('id',u.id).single();
-    setRole(me?.role||'user'); refresh();
-  })()},[]);
+export default function AdminMarcas() {
+  const [ok, setOk] = useState(false);
+  const [brands, setBrands] = useState([]);
 
-  async function refresh(){const {data}=await supabase.from('brands').select('*').order('slug');setBrands(data||[])}
+  useEffect(() => {
+    (async () => {
+      const { data: sess } = await supabase.auth.getSession();
+      const u = sess?.session?.user;
+      if (!u) return setOk(false);
+      // sos admin si estás en admin_emails
+      const { data: a } = await supabase.from('admin_emails').select('email').eq('email', u.email);
+      setOk(Array.isArray(a) && a.length > 0);
+      // cargar marcas
+      const { data: bs } = await supabase.from('brands').select('*').order('name');
+      setBrands(bs || []);
+    })();
+  }, []);
 
-  if(role!=='admin') return <main className='container'><h1 className='h1'>403</h1><p className='small'>Solo Admin.</p></main>;
-
-  async function onCreateBrand(e){
+  async function onCreate(e) {
     e.preventDefault();
-    const f=new FormData(e.currentTarget);
-    const slug=f.get('slug'); const name=f.get('name'); const description=f.get('description'); const instagram=f.get('instagram');
-    // upload logo file
-    let logo_url=null; const file=f.get('logo_file');
-    if(file && file.size>0){
-      const path=`brands/${slug}/${Date.now()}_${file.name}`;
-      const {error:e1}=await supabase.storage.from('media').upload(path,file);
-      if(e1) return alert(e1.message);
-      const {data:pub}=await supabase.storage.from('media').getPublicUrl(path);
-      logo_url=pub?.publicUrl||null;
+    const f = new FormData(e.currentTarget);
+    const name = f.get('name');
+    const slug = slugify(f.get('slug') || name);
+    const desc = f.get('description') || '';
+    const ig = f.get('instagram') || '';
+    const file = f.get('logo');
+
+    let logo_url = null;
+    if (file && file.size > 0) {
+      const path = `brands/${slug}/${Date.now()}_${file.name}`;
+      const { error: upErr } = await supabase.storage.from('media').upload(path, file);
+      if (upErr) return alert(`Error subiendo logo: ${upErr.message}`);
+      const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
+      logo_url = pub?.publicUrl || null;
     }
-    const payload={slug,name,description,instagram,logo_url,
-      mp_access_token:f.get('mp_access_token')||null,
-      mp_public_key:f.get('mp_public_key')||null,
-      transfer_alias:f.get('transfer_alias')||null
-    };
-    const {error}=await supabase.from('brands').insert(payload);
-    if(error) return alert(error.message);
-    alert('Marca creada'); e.currentTarget.reset(); refresh();
+
+    const payload = { slug, name, description: desc, instagram: ig, logo_url };
+    const { error } = await supabase.from('brands').insert(payload);
+    if (error) return alert(`No se pudo crear la marca: ${error.message}`);
+    alert('Marca creada');
+    window.location.reload();
   }
 
-  async function onUpdateShipping(e){
+  async function onSave(e, slug) {
     e.preventDefault();
-    const f=new FormData(e.currentTarget);
-    const slug=f.get('slug');
-    const patch={
-      ship_domicilio: f.get('ship_domicilio')?Number(f.get('ship_domicilio')):null,
-      ship_sucursal:  f.get('ship_sucursal')?Number(f.get('ship_sucursal')):null,
-      ship_free_from: Number(f.get('ship_free_from')||0),
-      mp_fee: f.get('mp_fee')?Number(f.get('mp_fee')):null
-    };
-    const {error}=await supabase.from('brands').update(patch).eq('slug',slug);
-    if(error) return alert(error.message);
-    alert('Actualizado');
+    const f = new FormData(e.currentTarget);
+    const mp_access_token = f.get('mp_access_token') || null;
+    const mp_public_key = f.get('mp_public_key') || null;
+    const transfer_alias = f.get('transfer_alias') || null;
+    const transfer_titular = f.get('transfer_titular') || null;
+    const ship_domicilio = f.get('ship_domicilio') === '' ? null : Number(f.get('ship_domicilio'));
+    const ship_sucursal = f.get('ship_sucursal') === '' ? null : Number(f.get('ship_sucursal'));
+    const ship_free_from = Number(f.get('ship_free_from') || 0);
+    const mp_fee = f.get('mp_fee') === '' ? null : Number(f.get('mp_fee'));
+
+    const { error } = await supabase
+      .from('brands')
+      .update({
+        mp_access_token, mp_public_key,
+        transfer_alias, transfer_titular,
+        ship_domicilio, ship_sucursal, ship_free_from,
+        mp_fee,
+      })
+      .eq('slug', slug);
+
+    if (error) return alert(`No se pudo guardar: ${error.message}`);
+    alert('Guardado');
   }
 
-  return (<main className='container'>
-    <h1 className='h1'>Admin · Marcas</h1>
+  if (!ok) return <main className="container"><h1 className="h1">Admin — Marcas</h1><p className="small">Necesitás cuenta admin.</p></main>;
 
-    <div className='card'>
-      <strong>Crear marca</strong>
-      <form onSubmit={onCreateBrand} className='grid' style={{gridTemplateColumns:'repeat(2,1fr)'}}>
-        <div><label>Slug</label><input className='input' name='slug' required/></div>
-        <div><label>Nombre</label><input className='input' name='name' required/></div>
-        <div><label>Descripción</label><input className='input' name='description'/></div>
-        <div><label>Instagram</label><input className='input' name='instagram' placeholder='https://instagram.com/...'/></div>
-        <div><label>Logo (archivo)</label><input className='input' name='logo_file' type='file' accept='image/*' required/></div>
-        <div><label>MP Access Token</label><input className='input' name='mp_access_token' placeholder='token secreto MP (opcional)'/></div>
-        <div><label>MP Public Key</label><input className='input' name='mp_public_key' placeholder='(opcional)'/></div>
-        <div><label>Alias/CBU (transferencia)</label><input className='input' name='transfer_alias' placeholder='(opcional)'/></div>
-        <div style={{gridColumn:'1/-1'}}><button className='btn'>Crear</button></div>
-      </form>
-    </div>
+  return (
+    <main className="container">
+      <h1 className="h1">Admin — Marcas</h1>
 
-    <h2 className='h2'>Editar marcas</h2>
-    <div className='grid' style={{gridTemplateColumns:'repeat(auto-fill, minmax(360px, 1fr))'}}>
-      {brands.map(b=>(
-        <div className='card' key={b.slug}>
-          <div className='row'>
-            <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <img src={b.logo_url||'/logo.png'} alt={b.name} style={{width:42,height:42,objectFit:'cover',borderRadius:21,background:'#0d0f16',border:'1px solid var(--line)'}}/>
-              <strong>{b.name}</strong>
+      <div className="card">
+        <strong>Crear marca</strong>
+        <form onSubmit={onCreate} className="grid" style={{ gridTemplateColumns: 'repeat(2,1fr)' }}>
+          <div><label>Nombre</label><input className="input" name="name" required /></div>
+          <div><label>Slug (opcional)</label><input className="input" name="slug" placeholder="auto desde nombre" /></div>
+          <div style={{ gridColumn: '1/-1' }}><label>Descripción</label><textarea name="description" className="input" rows="3" /></div>
+          <div><label>Instagram (URL)</label><input className="input" name="instagram" placeholder="https://instagram.com/tu-marca" /></div>
+          <div><label>Logo (archivo)</label><input className="input" type="file" name="logo" accept="image/*" /></div>
+          <div style={{ gridColumn: '1/-1' }}><button className="btn">Crear</button></div>
+        </form>
+        <p className="small">Los envíos, % de MP y medios de pago se configuran luego.</p>
+      </div>
+
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', marginTop: 16 }}>
+        {brands.map(b => (
+          <div key={b.slug} className="card">
+            <div className="row">
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <img src={b.logo_url || '/logo.png'} alt={b.name} style={{ width: 40, height: 40, borderRadius: 20, objectFit: 'cover', border: '1px solid var(--line)' }} />
+                <div>
+                  <strong>{b.name}</strong>
+                  <div className="small">{b.slug}</div>
+                </div>
+              </div>
+              <a className="badge" href={`/marcas/${b.slug}`}>Ver</a>
             </div>
-            <a className='badge' href={`/marcas/${b.slug}`}>Ver</a>
+
+            <form onSubmit={(e) => onSave(e, b.slug)} className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 12 }}>
+              <div><label>MP Access Token</label><input className="input" name="mp_access_token" defaultValue={b.mp_access_token || ''} /></div>
+              <div><label>MP Public Key (opcional)</label><input className="input" name="mp_public_key" defaultValue={b.mp_public_key || ''} /></div>
+              <div><label>Alias/CBU</label><input className="input" name="transfer_alias" defaultValue={b.transfer_alias || ''} /></div>
+              <div><label>Titular</label><input className="input" name="transfer_titular" defaultValue={b.transfer_titular || ''} /></div>
+              <div><label>Envío a domicilio (ARS)</label><input className="input" type="number" name="ship_domicilio" defaultValue={b.ship_domicilio ?? ''} placeholder="vacío = desactivado" /></div>
+              <div><label>Envío a sucursal (ARS)</label><input className="input" type="number" name="ship_sucursal" defaultValue={b.ship_sucursal ?? ''} placeholder="vacío = desactivado" /></div>
+              <div><label>Gratis desde (ARS)</label><input className="input" type="number" name="ship_free_from" defaultValue={b.ship_free_from || 0} /></div>
+              <div><label>% MP (vacío = global 10)</label><input className="input" type="number" name="mp_fee" defaultValue={b.mp_fee ?? ''} /></div>
+              <div style={{ gridColumn: '1/-1' }}><button className="btn">Guardar</button></div>
+            </form>
           </div>
-          <form onSubmit={onUpdateShipping} className='mt'>
-            <input type='hidden' name='slug' value={b.slug}/>
-            <div className='grid' style={{gridTemplateColumns:'1fr 1fr'}}>
-              <div><label>Envío domicilio</label><input className='input' name='ship_domicilio' type='number' min='0' defaultValue={b.ship_domicilio??''} placeholder='vacío = desactivar'/></div>
-              <div><label>Envío sucursal</label><input className='input' name='ship_sucursal' type='number' min='0' defaultValue={b.ship_sucursal??''} placeholder='vacío = desactivar'/></div>
-            </div>
-            <div className='grid' style={{gridTemplateColumns:'1fr 1fr'}}>
-              <div><label>Gratis desde</label><input className='input' name='ship_free_from' type='number' min='0' defaultValue={b.ship_free_from||0}/></div>
-              <div><label>% MP (vacío = global 10%)</label><input className='input' name='mp_fee' type='number' min='0' defaultValue={b.mp_fee??''}/></div>
-            </div>
-            <div className='mt'><button className='btn'>Guardar</button></div>
-          </form>
-        </div>
-      ))}
-    </div>
-  </main>);
+        ))}
+      </div>
+    </main>
+  );
 }
