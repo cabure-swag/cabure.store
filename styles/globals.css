@@ -137,3 +137,4 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
 @media (hover:hover){
   .card:hover{transform:translateY(-1px)}
 }
+.avatar.big{ width:42px; height:42px }
