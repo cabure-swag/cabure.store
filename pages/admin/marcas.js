@@ -37,29 +37,42 @@ export default function AdminMarcas() {
     e.preventDefault();
     if (busyCreate) return;
     setBusyCreate(true);
+    const form = e.currentTarget;
+
     try {
-      const f = new FormData(e.currentTarget);
+      const f = new FormData(form);
       const name = f.get('name');
       const slug = slugify(f.get('slug') || name);
       const desc = f.get('description') || '';
       const ig = f.get('instagram') || '';
-      const file = f.get('logo');
+      const logoFile = f.get('logo');
+      const coverFile = f.get('cover');
 
       let logo_url = null;
-      if (file && file.size > 0) {
-        const path = `brands/${slug}/${Date.now()}_${file.name}`;
-        const up = await supabase.storage.from('media').upload(path, file);
+      if (logoFile && logoFile.size > 0) {
+        const path = `brands/${slug}/${Date.now()}_${logoFile.name}`;
+        const up = await supabase.storage.from('media').upload(path, logoFile);
         if (up.error) throw new Error(`Error subiendo logo: ${up.error.message}`);
         const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
         logo_url = pub?.publicUrl || null;
       }
 
+      let cover_url = null;
+      if (coverFile && coverFile.size > 0) {
+        const path = `brands/${slug}/cover_${Date.now()}_${coverFile.name}`;
+        const up = await supabase.storage.from('media').upload(path, coverFile);
+        if (up.error) throw new Error(`Error subiendo portada: ${up.error.message}`);
+        const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
+        cover_url = pub?.publicUrl || null;
+      }
+
       const { error } = await supabase
         .from('brands')
-        .insert({ slug, name, description: desc, instagram: ig, logo_url });
+        .insert({ slug, name, description: desc, instagram: ig, logo_url, cover_url });
 
       if (error) throw new Error(error.message);
-      e.currentTarget.reset();
+
+      form.reset();
       alert('Marca creada');
       await load();
     } catch (err) {
@@ -109,11 +122,12 @@ export default function AdminMarcas() {
           <div style={{ gridColumn: '1/-1' }}><label>Descripción</label><textarea name="description" className="input" rows="3" /></div>
           <div><label>Instagram (URL)</label><input className="input" name="instagram" placeholder="https://instagram.com/tu-marca" /></div>
           <div><label>Logo (archivo)</label><input className="input" type="file" name="logo" accept="image/*" /></div>
+          <div><label>Portada (archivo)</label><input className="input" type="file" name="cover" accept="image/*" /></div>
           <div style={{ gridColumn: '1/-1' }}>
             <button className="btn" disabled={busyCreate}>{busyCreate ? 'Creando…' : 'Crear'}</button>
           </div>
         </form>
-        <p className="small">El logo es opcional; si subís archivo va al bucket público <b>media</b>.</p>
+        <p className="small">Logo y portada son opcionales; si subís archivos van al bucket público <b>media</b>.</p>
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', marginTop: 16 }}>
