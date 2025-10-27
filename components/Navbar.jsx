@@ -50,7 +50,6 @@ export default function NavBar(){
         </div>
       </div>
 
-      {/* Forzamos reglas globales para que SIEMPRE apliquen */}
       <style jsx global>{`
         .cab-anim{
           background: linear-gradient(90deg, #7c3aed, #60a5fa, #7c3aed);
@@ -65,7 +64,12 @@ export default function NavBar(){
           0% { background-position: 0% 50%; }
           100% { background-position: 200% 50%; }
         }
-        .avatar-lg{ width: 44px !important; height: 44px !important; border-radius: 999px; border: 1px solid var(--line); }
+        .avatar-lg{
+          width: 44px !important;
+          height: 44px !important;
+          border-radius: 999px;
+          border: 1px solid var(--line);
+        }
       `}</style>
     </nav>
   );
