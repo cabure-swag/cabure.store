@@ -1,6 +1,7 @@
 // pages/vendedor/perfil.js
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { pathSafe } from '../../lib/pathSafe';
 
 export default function VendedorPerfil(){
   const [me, setMe] = useState(null);
@@ -40,8 +41,8 @@ export default function VendedorPerfil(){
 
     let logo_url = brands.find(b => b.slug===brandSlug)?.logo_url || null;
     if (logo && logo.size>0) {
-      const path = `brands/${brandSlug}/${Date.now()}_${logo.name}`;
-      const up = await supabase.storage.from('media').upload(path, logo);
+      const path = `brands/${brandSlug}/${Date.now()}_${pathSafe(logo.name)}`;
+      const up = await supabase.storage.from('media').upload(path, logo, { contentType: logo.type });
       if (up.error) { setSaving(false); return alert(up.error.message); }
       const { data: pub } = await supabase.storage.from('media').getPublicUrl(path);
       logo_url = pub?.publicUrl || null;
@@ -49,8 +50,8 @@ export default function VendedorPerfil(){
 
     let cover_url = brands.find(b => b.slug===brandSlug)?.cover_url || null;
     if (cover && cover.size>0) {
-      const path = `brands/${brandSlug}/cover_${Date.now()}_${cover.name}`;
-      const up = await supabase.storage.from('media').upload(path, cover);
+      const path = `brands/${brandSlug}/cover_${Date.now()}_${pathSafe(cover.name)}`;
+      const up = await supabase.storage.from('media').upload(path, cover, { contentType: cover.type });
       if (up.error) { setSaving(false); return alert(up.error.message); }
       const { data: pub } = await supabase.storage.from('media').getPublicUrl(path);
       cover_url = pub?.publicUrl || null;
@@ -94,9 +95,9 @@ export default function VendedorPerfil(){
           <div><label>Portada</label><input className="input" type="file" name="cover" accept="image/*" /></div>
 
           <div><label>Envío domicilio (ARS)</label><input className="input" type="number" name="ship_domicilio"
-            defaultValue={brands.find(b => b.slug===brandSlug)?.ship_domicilio ?? ''} placeholder="vacío = off" /></div>
+            defaultValue={brands.find(b => b.slug===brandSlug)?.ship_domicilio ?? ''} placeholder="vacío = desactivado" /></div>
           <div><label>Envío sucursal (ARS)</label><input className="input" type="number" name="ship_sucursal"
-            defaultValue={brands.find(b => b.slug===brandSlug)?.ship_sucursal ?? ''} placeholder="vacío = off" /></div>
+            defaultValue={brands.find(b => b.slug===brandSlug)?.ship_sucursal ?? ''} placeholder="vacío = desactivado" /></div>
           <div><label>Gratis desde (ARS)</label><input className="input" type="number" name="ship_free_from"
             defaultValue={brands.find(b => b.slug===brandSlug)?.ship_free_from || 0} /></div>
 
