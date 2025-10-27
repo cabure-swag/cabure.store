@@ -50,19 +50,18 @@ export default function NavBar(){
         </div>
       </div>
 
+      {/* CSS local para asegurar tamaños/animación */}
       <style jsx>{`
         .brand-anim{
-          background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--text));
+          background: linear-gradient(90deg, #7c3aed, #60a5fa, #e5e7eb);
           -webkit-background-clip: text;
           background-clip: text;
           color: transparent;
-          animation: hue 6s linear infinite;
           font-weight: 900;
+          animation: hue 8s linear infinite;
         }
-        @keyframes hue {
-          0% { filter: hue-rotate(0deg); } 
-          100% { filter: hue-rotate(360deg); }
-        }
+        @keyframes hue { 0%{filter:hue-rotate(0deg)} 100%{filter:hue-rotate(360deg)} }
+        :global(.avatar.big){ width:44px; height:44px; border-radius:999px; border:1px solid var(--line); }
       `}</style>
     </nav>
   );
