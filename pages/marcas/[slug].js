@@ -33,7 +33,9 @@ function useProducts(slug){
         .select('id,brand_slug,name,price,stock,image_url,description,created_at')
         .eq('brand_slug', slug)
         .order('created_at', { ascending: false });
+
       const ids = (prods || []).map(p => p.id);
+
       let images = [];
       if(ids.length){
         const { data: imgs } = await supabase
@@ -43,6 +45,7 @@ function useProducts(slug){
           .order('position');
         images = imgs || [];
       }
+
       let pc = [];
       if(ids.length){
         const { data: rel } = await supabase
@@ -51,10 +54,14 @@ function useProducts(slug){
           .in('product_id', ids);
         pc = rel || [];
       }
+
       const grouped = (prods || []).map(p => ({
         ...p,
         stock: Math.max(1, p.stock ?? 1),
-        images: images.filter(i => i.product_id === p.id).sort((a,b)=>a.position-b.position).slice(0,5),
+        images: images
+          .filter(i => i.product_id === p.id)
+          .sort((a,b)=>a.position-b.position)
+          .slice(0,5),
         category_ids: pc.filter(r=>r.product_id===p.id).map(r=>r.category_id)
       }));
       setItems(grouped);
@@ -72,19 +79,23 @@ export default function BrandPage(){
 
   const [selectedCats, setSelectedCats] = useState([]);
   const [cart, setCart] = useState([]);
+
   const filtered = useMemo(() => {
     if (!selectedCats.length) return products;
     const set = new Set(selectedCats);
     return products.filter(p => (p.category_ids || []).some(id => set.has(id)));
   }, [products, selectedCats]);
 
-  function toggleCat(id){ setSelectedCats(arr => arr.includes(id) ? arr.filter(x => x!==id) : [...arr, id]); }
+  function toggleCat(id){
+    setSelectedCats(arr => arr.includes(id) ? arr.filter(x => x!==id) : [...arr, id]);
+  }
+
   function add(p){
     setCart(cs => {
       const idx = cs.findIndex(x => x.id === p.id);
       if(idx>=0){
         const it = cs[idx];
-        if (it.qty >= p.stock) return cs;
+        if (it.qty >= p.stock) return cs; // no pasar stock
         const c = [...cs]; c[idx] = {...it, qty: it.qty + 1}; return c;
       }
       return [...cs, { id: p.id, name: p.name, price: p.price, qty: 1, stock: p.stock }];
@@ -93,8 +104,13 @@ export default function BrandPage(){
   function dec(id){ setCart(cs => cs.map(c => c.id===id? {...c, qty: Math.max(1, c.qty-1)}:c)); }
   function inc(id){ setCart(cs => cs.map(c => c.id===id? {...c, qty: Math.min(c.stock, c.qty+1)}:c)); }
   function rm(id){ setCart(cs => cs.filter(c => c.id !== id)); }
+
   const subtotal = useMemo(() => cart.reduce((s,c)=>s+c.price*c.qty,0), [cart]);
-  function goCheckout(){ localStorage.setItem(`cart:${slug}`, JSON.stringify(cart)); router.push(`/checkout/${slug}`); }
+
+  function goCheckout(){
+    localStorage.setItem(`cart:${slug}`, JSON.stringify(cart));
+    router.push(`/checkout/${slug}`);
+  }
 
   return (
     <main>
@@ -102,19 +118,24 @@ export default function BrandPage(){
         <div className="container"><div className="small">Cargando…</div></div>
       ) : (
         <>
-          {/* portada */}
+          {/* Portada */}
           <div style={{ position:'relative', height: 300, background:'#0e0f16' }}>
-            <img src={brand.cover_url || brand.logo_url || '/logo.png'}
-                 alt={brand.name}
-                 style={{ width:'100%', height:'100%', objectFit:'cover', filter:'brightness(.82)' }}/>
+            <img
+              src={brand.cover_url || brand.logo_url || '/logo.png'}
+              alt={brand.name}
+              style={{ width:'100%', height:'100%', objectFit:'cover', filter:'brightness(.82)' }}
+            />
           </div>
 
-          {/* cabecera + carrito en layout responsivo */}
+          {/* Cabecera “en vidrio” + Carrito al lado (sticky) */}
           <div className="container" style={{ marginTop: -72 }}>
             <div className="brand-layout">
               <div className="brand-header card">
-                <img src={brand.logo_url || '/logo.png'} alt={brand.name}
-                     style={{ width:110, height:110, borderRadius:55, objectFit:'cover', border:'2px solid var(--line)' }}/>
+                <img
+                  src={brand.logo_url || '/logo.png'}
+                  alt={brand.name}
+                  style={{ width:110, height:110, borderRadius:55, objectFit:'cover', border:'2px solid var(--line)' }}
+                />
                 <div className="brand-header-info">
                   <div className="h1" style={{ margin:0 }}>{brand.name}</div>
                   <div className="small" style={{ color:'var(--muted)' }}>{brand.description}</div>
@@ -125,8 +146,12 @@ export default function BrandPage(){
                   </div>
                 </div>
                 {brand.instagram && (
-                  <a className="btn-ghost" href={brand.instagram.startsWith('http')? brand.instagram : `https://instagram.com/${brand.instagram.replace('@','')}`}
-                     target="_blank" rel="noreferrer" style={{ alignSelf:'flex-start' }}>
+                  <a
+                    className="btn-ghost"
+                    href={brand.instagram.startsWith('http')? brand.instagram : `https://instagram.com/${brand.instagram.replace('@','')}`}
+                    target="_blank" rel="noreferrer"
+                    style={{ alignSelf:'flex-start' }}
+                  >
                     IG ↗
                   </a>
                 )}
@@ -135,7 +160,9 @@ export default function BrandPage(){
               <div className="cart card">
                 <strong>Tu pedido</strong>
                 <div className="mt" style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {cart.length===0 ? <div className="small">Todavía no agregaste productos.</div> : cart.map(c=>(
+                  {cart.length===0 ? (
+                    <div className="small">Todavía no agregaste productos.</div>
+                  ) : cart.map(c=>(
                     <div key={c.id} className="row" style={{ alignItems:'center' }}>
                       <div>
                         <div>{c.name}</div>
@@ -156,13 +183,18 @@ export default function BrandPage(){
             </div>
           </div>
 
-          {/* filtros */}
+          {/* Filtros por categorías */}
           <div className="container" style={{ marginTop: 12 }}>
             {cats.length > 0 && (
               <div className="card" style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                 {cats.map(c => (
                   <label key={c.id} className="btn-ghost" style={{ padding:'6px 10px', borderRadius:10 }}>
-                    <input type="checkbox" checked={selectedCats.includes(c.id)} onChange={()=>toggleCat(c.id)} style={{ marginRight:8 }}/>
+                    <input
+                      type="checkbox"
+                      checked={selectedCats.includes(c.id)}
+                      onChange={()=>toggleCat(c.id)}
+                      style={{ marginRight:8 }}
+                    />
                     {c.name}
                   </label>
                 ))}
@@ -171,23 +203,26 @@ export default function BrandPage(){
             )}
           </div>
 
-          {/* productos: llenan todo el ancho, sin -/+ en la card */}
+          {/* Productos (grid ancho completo). 
+              OJO: sin <style jsx> anidado dentro de ningún div */}
           <div className="container" style={{ marginTop: 14 }}>
             <div className="grid-products">
               {filtered.map(p => (
                 <div className="card" key={p.id} style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  <div style={{ position:'relative', height:340, background:'#0e0f16', borderRadius:12, overflow:'hidden' }}>
-                    <div style={{
-                      display:'flex', width:'100%', height:'100%',
-                      overflowX:'auto', scrollSnapType:'x mandatory',
-                      scrollbarWidth:'none'
-                    }}>
-                      <style jsx>{` div::-webkit-scrollbar{ display:none; } `}</style>
-                      {(p.images.length ? p.images : [{ url: p.image_url }]).slice(0,5).map((im,idx)=>(
-                        <img key={idx} src={im?.url || p.image_url || '/logo.png'} alt={p.name}
-                          style={{ width:'100%', height:'100%', objectFit:'cover', flex:'0 0 100%', scrollSnapAlign:'center' }}/>
-                      ))}
-                    </div>
+                  <div className="carousel" style={{
+                    position:'relative', height:340, background:'#0e0f16',
+                    borderRadius:12, overflow:'hidden',
+                    display:'flex', width:'100%', // carrusel
+                    overflowX:'auto', scrollSnapType:'x mandatory'
+                  }}>
+                    {(p.images.length ? p.images : [{ url: p.image_url }]).slice(0,5).map((im,idx)=>(
+                      <img
+                        key={idx}
+                        src={im?.url || p.image_url || '/logo.png'}
+                        alt={p.name}
+                        style={{ width:'100%', height:'100%', objectFit:'cover', flex:'0 0 100%', scrollSnapAlign:'center' }}
+                      />
+                    ))}
                   </div>
 
                   <div>
@@ -224,10 +259,15 @@ export default function BrandPage(){
             }
             .brand-header-info{ flex:1; min-width: 0; }
             .cart{ position: sticky; top: 90px; align-self: start; }
+
             .grid-products{
               display:grid; gap:16px;
               grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             }
+
+            /* Carrusel: ocultar scrollbars y seguir siendo accesible */
+            .carousel { scrollbar-width: none; }
+            .carousel::-webkit-scrollbar { display: none; }
           `}</style>
         </>
       )}
