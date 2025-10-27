@@ -14,44 +14,59 @@ function slugify(s) {
 export default function AdminMarcas() {
   const [ok, setOk] = useState(false);
   const [brands, setBrands] = useState([]);
+  const [busyCreate, setBusyCreate] = useState(false);
+
+  async function load() {
+    const { data: bs } = await supabase.from('brands').select('*').order('name');
+    setBrands(bs || []);
+  }
 
   useEffect(() => {
     (async () => {
       const { data: sess } = await supabase.auth.getSession();
       const u = sess?.session?.user;
       if (!u) return setOk(false);
-      // sos admin si estás en admin_emails
       const { data: a } = await supabase.from('admin_emails').select('email').eq('email', u.email);
-      setOk(Array.isArray(a) && a.length > 0);
-      // cargar marcas
-      const { data: bs } = await supabase.from('brands').select('*').order('name');
-      setBrands(bs || []);
+      const admin = Array.isArray(a) && a.length > 0;
+      setOk(admin);
+      if (admin) await load();
     })();
   }, []);
 
   async function onCreate(e) {
     e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    const name = f.get('name');
-    const slug = slugify(f.get('slug') || name);
-    const desc = f.get('description') || '';
-    const ig = f.get('instagram') || '';
-    const file = f.get('logo');
+    if (busyCreate) return;
+    setBusyCreate(true);
+    try {
+      const f = new FormData(e.currentTarget);
+      const name = f.get('name');
+      const slug = slugify(f.get('slug') || name);
+      const desc = f.get('description') || '';
+      const ig = f.get('instagram') || '';
+      const file = f.get('logo');
 
-    let logo_url = null;
-    if (file && file.size > 0) {
-      const path = `brands/${slug}/${Date.now()}_${file.name}`;
-      const { error: upErr } = await supabase.storage.from('media').upload(path, file);
-      if (upErr) return alert(`Error subiendo logo: ${upErr.message}`);
-      const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
-      logo_url = pub?.publicUrl || null;
+      let logo_url = null;
+      if (file && file.size > 0) {
+        const path = `brands/${slug}/${Date.now()}_${file.name}`;
+        const up = await supabase.storage.from('media').upload(path, file);
+        if (up.error) throw new Error(`Error subiendo logo: ${up.error.message}`);
+        const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
+        logo_url = pub?.publicUrl || null;
+      }
+
+      const { error } = await supabase
+        .from('brands')
+        .insert({ slug, name, description: desc, instagram: ig, logo_url });
+
+      if (error) throw new Error(error.message);
+      e.currentTarget.reset();
+      alert('Marca creada');
+      await load();
+    } catch (err) {
+      alert(err.message || 'No se pudo crear la marca');
+    } finally {
+      setBusyCreate(false);
     }
-
-    const payload = { slug, name, description: desc, instagram: ig, logo_url };
-    const { error } = await supabase.from('brands').insert(payload);
-    if (error) return alert(`No se pudo crear la marca: ${error.message}`);
-    alert('Marca creada');
-    window.location.reload();
   }
 
   async function onSave(e, slug) {
@@ -94,9 +109,11 @@ export default function AdminMarcas() {
           <div style={{ gridColumn: '1/-1' }}><label>Descripción</label><textarea name="description" className="input" rows="3" /></div>
           <div><label>Instagram (URL)</label><input className="input" name="instagram" placeholder="https://instagram.com/tu-marca" /></div>
           <div><label>Logo (archivo)</label><input className="input" type="file" name="logo" accept="image/*" /></div>
-          <div style={{ gridColumn: '1/-1' }}><button className="btn">Crear</button></div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <button className="btn" disabled={busyCreate}>{busyCreate ? 'Creando…' : 'Crear'}</button>
+          </div>
         </form>
-        <p className="small">Los envíos, % de MP y medios de pago se configuran luego.</p>
+        <p className="small">El logo es opcional; si subís archivo va al bucket público <b>media</b>.</p>
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', marginTop: 16 }}>
