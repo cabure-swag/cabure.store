@@ -40,7 +40,7 @@ export default function NavBar(){
               {!user && <Link href="/login">Iniciar sesión</Link>}
               {user && (
                 <>
-                  {hasVendor && <Link href="/vendedor/perfil">Vendedor</Link>}
+                  {hasVendor && <Link href="/vendedor">Vendedor</Link>}
                   {isAdmin && <Link href="/admin">Admin</Link>}
                   <button onClick={() => supabase.auth.signOut().then(()=>location.href='/')}>Cerrar sesión</button>
                 </>
