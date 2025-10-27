@@ -1,15 +1,24 @@
 // ui/LogoTickerSeamless.jsx
 import { useEffect, useLayoutEffect, useRef } from 'react';
 
-export default function LogoTickerSeamless({ brands = [], speed = 20 }) {
+/**
+ * Banda de logos continua, tamaño fijo (56px), sin cortes.
+ * - Dos tracks que se encadenan (tira infinita).
+ * - Drag + inercia.
+ * - Recalcula en resize.
+ */
+export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
+  // Si no hay marcas, mostramos placeholders (8 círculos vacíos)
   const base = (brands && brands.length) ? brands : new Array(8).fill({ slug:null, logo_url:null });
+
   const wrapRef = useRef(null);
-  const t1Ref = useRef(null);
-  const t2Ref = useRef(null);
+  const t1Ref  = useRef(null);
+  const t2Ref  = useRef(null);
   const S = useRef({ x: 0, vx: -0.6, drag: false, lastX: 0, w: 0, raf: 0 });
 
-  const trackHtml = (ref) => (
-    <div ref={ref} className="cab-track">
+  // Render de una tira
+  const Track = ({ innerRef }) => (
+    <div ref={innerRef} className="cab-track">
       {base.map((b, i) => (
         <a
           key={i}
@@ -19,19 +28,26 @@ export default function LogoTickerSeamless({ brands = [], speed = 20 }) {
           title={b?.slug || 'marca'}
         >
           {b?.logo_url
-            ? <img src={b.logo_url} alt={b.slug || 'marca'} />
+            ? <img className="cab-img" src={b.logo_url} alt={b.slug || 'marca'} />
             : <div className="cab-empty" />}
         </a>
       ))}
     </div>
   );
 
+  // Medir ancho de una tira y posicionar
   const measure = () => {
     const t1 = t1Ref.current;
-    if (!t1) return;
-    S.current.w = t1.scrollWidth;
+    const t2 = t2Ref.current;
+    if (!t1 || !t2) return;
+
+    // Fuerza reflow para ancho real
+    const W = t1.scrollWidth;
+    S.current.w = W > 0 ? W : 1;
+
+    // Colocar: track1 en X actual; track2 pegado a su derecha
     t1.style.transform = `translate3d(${S.current.x}px,0,0)`;
-    t2Ref.current.style.transform = `translate3d(${S.current.x + S.current.w}px,0,0)`;
+    t2.style.transform = `translate3d(${S.current.x + S.current.w}px,0,0)`;
   };
 
   useLayoutEffect(() => { measure(); }, [brands?.length]);
@@ -42,26 +58,34 @@ export default function LogoTickerSeamless({ brands = [], speed = 20 }) {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // Animación continua + inercia
   useEffect(() => {
     const step = () => {
       const t1 = t1Ref.current, t2 = t2Ref.current;
       if (!t1 || !t2) return;
+
       if (!S.current.drag) {
         S.current.x += S.current.vx;
-        S.current.vx *= 0.995;
-        if (Math.abs(S.current.vx) < 0.03) S.current.vx = -speed * 0.03;
+        S.current.vx *= 0.995; // fricción suave
+        if (Math.abs(S.current.vx) < 0.02) S.current.vx = -speed * 0.02; // velocidad base a la izquierda
       }
+
       const W = S.current.w || t1.scrollWidth || 1;
+
+      // “Dar la vuelta” sin cortes
       if (S.current.x <= -W) S.current.x += W;
-      if (S.current.x > 0) S.current.x -= W;
+      if (S.current.x > 0)   S.current.x -= W;
+
       t1.style.transform = `translate3d(${S.current.x}px,0,0)`;
       t2.style.transform = `translate3d(${S.current.x + W}px,0,0)`;
+
       S.current.raf = requestAnimationFrame(step);
     };
     S.current.raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(S.current.raf);
   }, [speed]);
 
+  // Drag + inercia
   useEffect(() => {
     const el = wrapRef.current;
     const state = S.current;
@@ -80,8 +104,9 @@ export default function LogoTickerSeamless({ brands = [], speed = 20 }) {
     el.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
     el.addEventListener('touchstart', down, { passive: true });
-    el.addEventListener('touchmove', move, { passive: true });
+    el.addEventListener('touchmove', move,  { passive: true });
     window.addEventListener('touchend', up);
+
     return () => {
       el.removeEventListener('mousedown', down);
       el.removeEventListener('mousemove', move);
@@ -94,11 +119,13 @@ export default function LogoTickerSeamless({ brands = [], speed = 20 }) {
 
   return (
     <div ref={wrapRef} className="cab-wrap">
-      {trackHtml(t1Ref)}
-      {trackHtml(t2Ref)}
-      <style jsx>{`
+      <Track innerRef={t1Ref} />
+      <Track innerRef={t2Ref} />
+
+      {/* CSS global para neutralizar estilos que agrandan imágenes */}
+      <style jsx global>{`
         .cab-wrap {
-          height: 96px;
+          height: 88px;
           overflow: hidden;
           background: #0c0e14;
           border-bottom: 1px solid var(--line);
@@ -107,29 +134,40 @@ export default function LogoTickerSeamless({ brands = [], speed = 20 }) {
           user-select: none;
         }
         .cab-wrap:active { cursor: grabbing; }
+
         .cab-track {
           position: absolute;
           top: 0; left: 0;
           display: flex;
-          height: 96px;
+          height: 88px;
           align-items: center;
           will-change: transform;
         }
+
         .cab-slot {
-          width: 64px; height: 64px;
-          margin: 12px 28px;
+          flex: 0 0 auto;
+          width: 56px; height: 56px;
+          margin: 12px 26px;
           border-radius: 999px;
           border: 1px solid var(--line);
           background: #10121a;
           display: inline-flex; align-items: center; justify-content: center;
-          flex: 0 0 auto;
         }
-        .cab-slot img {
-          width: 64px; height: 64px; object-fit: cover;
+
+        /* CLAVE: impedir que estilos globales deformen los logos */
+        .cab-img {
+          display: block;
+          width: 56px !important;
+          height: 56px !important;
+          max-width: none !important;
+          max-height: none !important;
+          object-fit: cover;
           border-radius: 999px;
+          border: 0;
         }
+
         .cab-empty {
-          width: 64px; height: 64px; border-radius: 999px;
+          width: 56px; height: 56px; border-radius: 999px;
           border: 1px dashed #222436; background: #0f1118;
         }
       `}</style>
