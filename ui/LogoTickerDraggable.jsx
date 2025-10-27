@@ -1,38 +1,25 @@
 // ui/LogoTickerDraggable.jsx
-// Banda continua, centrada, con arrastre + inercia. Cada logo linkea a /marcas/[slug].
-
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 export default function LogoTickerDraggable({ brands = [], speed = 18 }) {
-  const ordered = [...brands];
-  const items = [...ordered, ...ordered, ...ordered]; // triplicamos para loop
+  // duplicamos varias veces para continuidad
+  const items = [...brands, ...brands, ...brands, ...brands];
+
   const wrapRef = useRef(null);
   const trackRef = useRef(null);
+  const st = useRef({ x: 0, vx: -0.6, dragging: false, lastX: 0, trackW: 0, raf: 0 });
 
-  const state = useRef({
-    x: 0,
-    vx: -0.6,          // px/frame base
-    dragging: false,
-    lastX: 0,
-    slotW: 112,
-    totalW: 0,
-    raf: 0,
-  });
-
-  // medir ancho real del slot (para que no “se corra”)
+  // medir ancho real del track
   useLayoutEffect(() => {
-    const probe = document.createElement('div');
-    probe.style.cssText =
-      'position:absolute;visibility:hidden;width:auto;height:64px;margin:14px 24px;border:1px solid transparent;';
-    probe.className = 'slotX';
-    document.body.appendChild(probe);
-    const slotW = Math.max(112, probe.getBoundingClientRect().width || 112);
-    document.body.removeChild(probe);
-    state.current.slotW = slotW;
-    state.current.totalW = slotW * items.length;
-    // centrar en el bloque del medio
-    state.current.x = -Math.floor(state.current.totalW / 3);
-  }, [items.length]);
+    const wrap = wrapRef.current;
+    const track = trackRef.current;
+    if (!wrap || !track) return;
+    // Forzamos layout y medimos
+    st.current.trackW = track.scrollWidth;
+    // arrancar en el medio para que no “se corra”
+    st.current.x = -Math.floor(st.current.trackW / 2);
+    track.style.transform = `translate3d(${st.current.x}px,0,0)`;
+  }, [brands.length]);
 
   useEffect(() => {
     const track = trackRef.current;
@@ -43,45 +30,46 @@ export default function LogoTickerDraggable({ brands = [], speed = 18 }) {
     const tick = (ts) => {
       const dt = Math.max(1, ts - lastTs);
       lastTs = ts;
+      const S = st.current;
 
-      const st = state.current;
-      if (!st.dragging) {
-        st.x += st.vx * (dt / 16.7);
-        st.vx *= 0.995;
-        if (Math.abs(st.vx) < 0.02) st.vx = -speed * 0.02;
+      if (!S.dragging) {
+        S.x += S.vx * (dt / 16.7);
+        S.vx *= 0.995;
+        if (Math.abs(S.vx) < 0.02) S.vx = -speed * 0.02;
       }
 
-      const W = st.totalW;
-      if (st.x <= -W) st.x += W;
-      if (st.x >= 0) st.x -= W;
+      const W = S.trackW || track.scrollWidth || 1;
+      // loop continuo
+      if (S.x <= -W) S.x += W;
+      if (S.x >= 0) S.x -= W;
 
-      track.style.transform = `translate3d(${st.x}px,0,0)`;
-      st.raf = requestAnimationFrame(tick);
+      track.style.transform = `translate3d(${S.x}px,0,0)`;
+      S.raf = requestAnimationFrame(tick);
     };
 
-    state.current.raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(state.current.raf);
+    st.current.raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(st.current.raf);
   }, [speed]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
+    const S = st.current;
     if (!wrap) return;
-    const st = state.current;
 
     const onDown = (e) => {
-      st.dragging = true;
-      st.lastX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      st.vx = 0;
+      S.dragging = true;
+      S.lastX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      S.vx = 0;
     };
     const onMove = (e) => {
-      if (!st.dragging) return;
+      if (!S.dragging) return;
       const x = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const dx = x - st.lastX;
-      st.x += dx;
-      st.vx = dx;
-      st.lastX = x;
+      const dx = x - S.lastX;
+      S.x += dx;
+      S.vx = dx;
+      S.lastX = x;
     };
-    const onUp = () => { st.dragging = false; };
+    const onUp = () => { S.dragging = false; };
 
     wrap.addEventListener('mousedown', onDown);
     wrap.addEventListener('mousemove', onMove);
@@ -107,7 +95,7 @@ export default function LogoTickerDraggable({ brands = [], speed = 18 }) {
           <a key={i} className="slotX"
              href={b?.slug ? `/marcas/${b.slug}` : '#'}
              onClick={(e) => { if (!b?.slug) e.preventDefault(); }}>
-            {b?.logo_url ? <img src={b.logo_url} alt={b.slug} /> : null}
+            {b?.logo_url ? <img src={b.logo_url} alt={b.slug} /> : <div className="empty" />}
           </a>
         ))}
       </div>
@@ -120,12 +108,13 @@ export default function LogoTickerDraggable({ brands = [], speed = 18 }) {
         .trackX{ display:flex; will-change:transform; }
         .slotX{
           display:inline-flex; align-items:center; justify-content:center;
-          width:64px; height:64px; border-radius:999px; background:#10121a;
-          border:1px solid var(--line); margin:14px 24px; flex:0 0 auto;
+          width:72px; height:72px; border-radius:999px; background:#10121a;
+          border:1px solid var(--line); margin:14px 28px; flex:0 0 auto;
         }
         .slotX img{
-          width:64px; height:64px; object-fit:cover; border-radius:999px; border:1px solid var(--line)
+          width:72px; height:72px; object-fit:cover; border-radius:999px; border:1px solid var(--line)
         }
+        .slotX .empty{ width:72px; height:72px; border-radius:999px; background:#0f1118; border:1px dashed #222436; }
         .tickerX:active { cursor:grabbing; }
       `}</style>
     </div>
