@@ -16,7 +16,6 @@ export default function VendedorPerfil(){
       if(!u) return;
       setMe({ id: u.id, email: u.email });
 
-      // Si es admin, puede ver todas las marcas; si es vendor, solo las asignadas
       const { data: admins } = await supabase.from('admin_emails').select('email').eq('email', u.email);
       const isAdmin = (admins||[]).length>0;
 
@@ -96,7 +95,7 @@ export default function VendedorPerfil(){
           {brands.map(b => <option key={b.slug} value={b.slug}>{b.name}</option>)}
         </select>
         {!brands.length && <p className="small" style={{ marginTop:8 }}>
-          No tenés marcas asignadas. Pedile al Admin que te asigne una en <code>vendor_brands</code>.
+          No tenés marcas asignadas. Pedile al Admin que te asigne una.
         </p>}
       </div>
 
@@ -108,9 +107,9 @@ export default function VendedorPerfil(){
           <div><label>Logo</label><input className="input" type="file" name="logo" accept="image/*" /></div>
           <div><label>Portada</label><input className="input" type="file" name="cover" accept="image/*" /></div>
 
-          <div><label>Envío domicilio (ARS)</label><input className="input" type="number" name="ship_domicilio"
+          <div><label>Envío a domicilio (ARS)</label><input className="input" type="number" name="ship_domicilio"
             defaultValue={brands.find(b => b.slug===brandSlug)?.ship_domicilio ?? ''} placeholder="vacío = desactivado" /></div>
-          <div><label>Envío sucursal (ARS)</label><input className="input" type="number" name="ship_sucursal"
+          <div><label>Envío a sucursal (ARS)</label><input className="input" type="number" name="ship_sucursal"
             defaultValue={brands.find(b => b.slug===brandSlug)?.ship_sucursal ?? ''} placeholder="vacío = desactivado" /></div>
           <div><label>Gratis desde (ARS)</label><input className="input" type="number" name="ship_free_from"
             defaultValue={brands.find(b => b.slug===brandSlug)?.ship_free_from || 0} /></div>
