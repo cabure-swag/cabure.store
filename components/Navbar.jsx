@@ -18,14 +18,14 @@ export default function NavBar(){
       const { data: a } = await supabase.from('admin_emails').select('email').eq('email', u.email);
       setIsAdmin((a||[]).length>0);
       const { data: vb } = await supabase.from('vendor_brands').select('brand_slug').eq('user_id', u.id);
-      setHasVendor((vb||[]).length>0 || (a||[]).length>0); // admin también ve vendedor
+      setHasVendor((vb||[]).length>0 || (a||[]).length>0);
     })();
   }, []);
 
   return (
     <nav className="nav">
       <div className="nav-inner">
-        <Link href="/" className="brand">cabure.store</Link>
+        <Link href="/" className="brand brand-anim">cabure.store</Link>
         <div className="menu">
           <Link className="btn-ghost" href="/">Inicio</Link>
           <Link className="btn-ghost" href="/compras">Mis compras</Link>
@@ -33,7 +33,7 @@ export default function NavBar(){
           <div className={`dropdown ${open?'open':''}`}>
             <button className="btn-ghost" onClick={()=>setOpen(v=>!v)}>
               {user?.user_metadata?.avatar_url
-                ? <img className="avatar" src={user.user_metadata.avatar_url} alt="yo" />
+                ? <img className="avatar big" src={user.user_metadata.avatar_url} alt="yo" />
                 : <span>Perfil</span>}
             </button>
             <div className="dropdown-menu">
@@ -49,6 +49,21 @@ export default function NavBar(){
           </div>
         </div>
       </div>
+
+      <style jsx>{`
+        .brand-anim{
+          background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--text));
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          animation: hue 6s linear infinite;
+          font-weight: 900;
+        }
+        @keyframes hue {
+          0% { filter: hue-rotate(0deg); } 
+          100% { filter: hue-rotate(360deg); }
+        }
+      `}</style>
     </nav>
   );
 }
