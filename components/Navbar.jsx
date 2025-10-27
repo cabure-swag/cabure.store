@@ -25,7 +25,7 @@ export default function NavBar(){
   return (
     <nav className="nav">
       <div className="nav-inner">
-        <Link href="/" className="brand brand-anim">cabure.store</Link>
+        <Link href="/" className="brand cab-anim">cabure.store</Link>
         <div className="menu">
           <Link className="btn-ghost" href="/">Inicio</Link>
           <Link className="btn-ghost" href="/compras">Mis compras</Link>
@@ -33,7 +33,7 @@ export default function NavBar(){
           <div className={`dropdown ${open?'open':''}`}>
             <button className="btn-ghost" onClick={()=>setOpen(v=>!v)}>
               {user?.user_metadata?.avatar_url
-                ? <img className="avatar big" src={user.user_metadata.avatar_url} alt="yo" />
+                ? <img className="avatar avatar-lg" src={user.user_metadata.avatar_url} alt="yo" />
                 : <span>Perfil</span>}
             </button>
             <div className="dropdown-menu">
@@ -50,18 +50,22 @@ export default function NavBar(){
         </div>
       </div>
 
-      {/* CSS local para asegurar tamaños/animación */}
-      <style jsx>{`
-        .brand-anim{
-          background: linear-gradient(90deg, #7c3aed, #60a5fa, #e5e7eb);
+      {/* Forzamos reglas globales para que SIEMPRE apliquen */}
+      <style jsx global>{`
+        .cab-anim{
+          background: linear-gradient(90deg, #7c3aed, #60a5fa, #7c3aed);
+          background-size: 200% auto;
           -webkit-background-clip: text;
           background-clip: text;
           color: transparent;
           font-weight: 900;
-          animation: hue 8s linear infinite;
+          animation: cabGradientMove 8s linear infinite;
         }
-        @keyframes hue { 0%{filter:hue-rotate(0deg)} 100%{filter:hue-rotate(360deg)} }
-        :global(.avatar.big){ width:44px; height:44px; border-radius:999px; border:1px solid var(--line); }
+        @keyframes cabGradientMove {
+          0% { background-position: 0% 50%; }
+          100% { background-position: 200% 50%; }
+        }
+        .avatar-lg{ width: 44px !important; height: 44px !important; border-radius: 999px; border: 1px solid var(--line); }
       `}</style>
     </nav>
   );
