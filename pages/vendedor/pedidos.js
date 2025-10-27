@@ -8,6 +8,7 @@ export default function VendedorPedidos(){
   const [orders, setOrders] = useState([]);
   const [selected, setSelected] = useState(null);
   const [msgs, setMsgs] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const chRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -16,12 +17,11 @@ export default function VendedorPedidos(){
       const { data: s } = await supabase.auth.getSession();
       const u = s?.session?.user;
       if (!u) return;
-
       const { data: admins } = await supabase.from('admin_emails').select('email').eq('email', u.email);
-      const isAdmin = (admins||[]).length>0;
+      setIsAdmin((admins||[]).length>0);
 
       let bs = [];
-      if (isAdmin) {
+      if ((admins||[]).length>0) {
         const { data } = await supabase.from('brands').select('slug,name').order('name');
         bs = data || [];
       } else {
@@ -36,18 +36,17 @@ export default function VendedorPedidos(){
     })();
   }, []);
 
-  useEffect(() => {
-    if(!brand) return;
-    (async () => {
-      const { data } = await supabase
-        .from('orders')
-        .select('id, buyer_name, buyer_email, status, total, created_at')
-        .eq('brand_slug', brand)
-        .order('created_at', { ascending: false })
-        .limit(100);
-      setOrders(data || []);
-    })();
-  }, [brand]);
+  async function loadOrders(slug){
+    const { data } = await supabase
+      .from('orders')
+      .select('id, user_id, buyer_name, buyer_email, status, total, created_at, brand_slug')
+      .eq('brand_slug', slug)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    setOrders(data || []);
+  }
+
+  useEffect(() => { if(brand) loadOrders(brand); }, [brand]);
 
   async function openChat(orderId){
     setSelected(orderId);
@@ -57,7 +56,6 @@ export default function VendedorPedidos(){
       .eq('order_id', orderId)
       .order('created_at', { ascending: true });
     setMsgs(data || []);
-
     if (chRef.current) supabase.removeChannel(chRef.current);
     const ch = supabase
       .channel(`chat_${orderId}`)
@@ -74,12 +72,24 @@ export default function VendedorPedidos(){
     const { data: s } = await supabase.auth.getSession();
     const u = s?.session?.user;
     await supabase.from('order_messages').insert({
-      order_id: selected,
-      author_role: 'vendor',
-      author_name: u?.email || 'Vendedor',
-      text
+      order_id: selected, author_role: 'vendor', author_name: u?.email || 'Vendedor', text
     });
     inputRef.current.value = '';
+  }
+
+  async function setStatus(orderId, status){
+    const { error } = await supabase.from('orders').update({ status }).eq('id', orderId);
+    if (error) return alert(error.message);
+    await loadOrders(brand);
+  }
+
+  async function deleteOrder(orderId){
+    if(!isAdmin) return;
+    if(!confirm('Eliminar pedido? (solo admin)')) return;
+    const { error } = await supabase.from('orders').delete().eq('id', orderId);
+    if (error) return alert(error.message);
+    await loadOrders(brand);
+    if (selected === orderId) { setSelected(null); setMsgs([]); }
   }
 
   return (
@@ -98,7 +108,7 @@ export default function VendedorPedidos(){
         <div className="card">
           <strong>Pedidos</strong>
           <table className="table" style={{ marginTop:10 }}>
-            <thead><tr><th>ID</th><th>Cliente</th><th>Estado</th><th>Total</th><th></th></tr></thead>
+            <thead><tr><th>ID</th><th>Cliente</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead>
             <tbody>
               {orders.map(o=>(
                 <tr key={o.id}>
@@ -106,7 +116,12 @@ export default function VendedorPedidos(){
                   <td>{o.buyer_name || o.buyer_email || 'Cliente'}</td>
                   <td>{o.status}</td>
                   <td>${o.total}</td>
-                  <td><button className="btn-ghost" onClick={()=>openChat(o.id)}>Abrir chat</button></td>
+                  <td style={{ display:'flex', gap:6 }}>
+                    <button className="btn-ghost" onClick={()=>openChat(o.id)}>Chat</button>
+                    <button className="btn-ghost" onClick={()=>setStatus(o.id, 'cancelled')}>Cancelar</button>
+                    <button className="btn-ghost" onClick={()=>setStatus(o.id, 'completed')}>Completado</button>
+                    {isAdmin && <button className="btn-ghost" onClick={()=>deleteOrder(o.id)}>Eliminar</button>}
+                  </td>
                 </tr>
               ))}
               {orders.length===0 && <tr><td colSpan="5" className="small">Sin pedidos aún.</td></tr>}
