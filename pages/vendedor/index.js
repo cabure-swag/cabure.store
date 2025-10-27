@@ -1,1 +1,22 @@
-export default function VendHome(){return(<main className='container'><h1 className='h1'>Vendedor</h1><div className='grid' style={{gridTemplateColumns:'repeat(3,1fr)'}}><a className='card' href='/vendedor/catalogo'><strong>Catálogo & Perfil</strong><div className='small'>Gestioná productos y perfil</div></a><a className='card' href='/vendedor/metricas'><strong>Métricas</strong><div className='small'>KPIs por mes</div></a><a className='card' href='/vendedor/pedidos'><strong>Pedidos & Chats</strong><div className='small'>Conversá con clientes</div></a></div></main>)}
+// pages/vendedor/index.js
+import Link from 'next/link';
+
+export default function VendedorHome(){
+  return (
+    <main className="container">
+      <h1 className="h1">Vendedor</h1>
+
+      <div className="grid" style={{ gridTemplateColumns:'1fr 1fr', gap:16 }}>
+        <Link href="/vendedor/perfil" className="card" style={{ textDecoration:'none' }}>
+          <div className="h2">Perfil de marca</div>
+          <p className="small">Editá logo, portada, descripción y envíos. (Pagos solo en Admin)</p>
+        </Link>
+
+        <Link href="/vendedor/catalogo" className="card" style={{ textDecoration:'none' }}>
+          <div className="h2">Catálogo</div>
+          <p className="small">Creá/edita productos, categorías y fotos (hasta 5 por producto).</p>
+        </Link>
+      </div>
+    </main>
+  );
+}
