@@ -10,19 +10,32 @@ export default function NavBar(){
   const [hasVendor, setHasVendor] = useState(false);
   const dropRef = useRef(null);
 
-  // Sesión + roles
+  // Carga sesión inicial + suscripción a cambios de auth
   useEffect(() => {
+    let sub;
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      const u = session?.user || null;
-      setUser(u || null);
-      if (!u) return;
-      const { data: a } = await supabase.from('admin_emails').select('email').eq('email', u.email);
-      setIsAdmin((a||[]).length>0);
-      const { data: vb } = await supabase.from('vendor_brands').select('brand_slug').eq('user_id', u.id);
-      setHasVendor((vb||[]).length>0 || (a||[]).length>0);
+      setUser(session?.user || null);
+      if (session?.user) { await loadRoles(session.user); }
+
+      sub = supabase.auth.onAuthStateChange(async (_evt, sess) => {
+        const u = sess?.user || null;
+        setUser(u);
+        if (u) await loadRoles(u);
+        else { setIsAdmin(false); setHasVendor(false); }
+      });
     })();
+    return () => { sub?.data?.subscription?.unsubscribe?.(); };
   }, []);
+
+  async function loadRoles(u){
+    const [{ data: a }, { data: vb }] = await Promise.all([
+      supabase.from('admin_emails').select('email').eq('email', u.email),
+      supabase.from('vendor_brands').select('brand_slug').eq('user_id', u.id),
+    ]);
+    setIsAdmin((a||[]).length>0);
+    setHasVendor((vb||[]).length>0 || (a||[]).length>0);
+  }
 
   // Cerrar al click externo
   useEffect(() => {
@@ -34,11 +47,23 @@ export default function NavBar(){
     return () => document.removeEventListener('click', onClick);
   }, []);
 
+  // Login rápido con Google (si no tenés /login)
+  async function signInGoogle(){
+    try{
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined }
+      });
+    }catch(err){
+      alert('No se pudo iniciar sesión: ' + (err?.message || err));
+    }
+  }
+
   return (
     <header className="nav">
       <div className="nav-inner">
-        <Link href="/" className="brand cab-anim" aria-label="Ir al inicio">
-          cabure.store
+        <Link href="/" className="brand cab-hover" aria-label="Ir al inicio">
+          CABURE.STORE
         </Link>
 
         <nav className="menu">
@@ -66,7 +91,12 @@ export default function NavBar(){
 
             {open && (
               <div className="dropdown-menu" role="menu">
-                {!user && <Link role="menuitem" href="/login">Iniciar sesión</Link>}
+                {!user && (
+                  <>
+                    {/* Si TENÉS /login, podés usar el Link: <Link role="menuitem" href="/login">Iniciar sesión</Link> */}
+                    <button role="menuitem" onClick={signInGoogle}>Iniciar sesión (Google)</button>
+                  </>
+                )}
                 {user && (
                   <>
                     {hasVendor && <Link role="menuitem" href="/vendedor">Vendedor</Link>}
@@ -82,7 +112,7 @@ export default function NavBar(){
         </nav>
       </div>
 
-      {/* Estilos globales fuertes para que sí se apliquen */}
+      {/* Estilos globales — hover animado, avatar grande, chevrón, menú */}
       <style jsx global>{`
         .nav {
           position: sticky;
@@ -101,18 +131,23 @@ export default function NavBar(){
           gap: 12px;
         }
 
-        /* Marca animada */
-        .brand.cab-anim{
+        /* Marca: SIN animación por defecto.
+           SOLO al pasar el mouse aplica el gradiente animado */
+        .brand.cab-hover{
           font-weight: 900;
           letter-spacing: .2px;
           text-decoration: none;
+          color: var(--text);
+          display: inline-block;
+          transition: color .12s ease;
+        }
+        .brand.cab-hover:hover{
           background: linear-gradient(90deg, #7c3aed, #60a5fa, #7c3aed);
           background-size: 200% auto;
           -webkit-background-clip: text;
           background-clip: text;
-          color: transparent !important; /* fuerza visibilidad */
+          color: transparent; /* visible el gradient */
           animation: cabGradientMove 8s linear infinite;
-          display: inline-block;
         }
         @keyframes cabGradientMove {
           0% { background-position: 0% 50%; }
@@ -135,7 +170,7 @@ export default function NavBar(){
         }
         .btn-ghost:hover{ transform: translateY(-1px); box-shadow: 0 6px 18px rgba(124,58,237,.16); }
 
-        /* Botón del menú del perfil */
+        /* Botón del menú del perfil (avatar + chevrón) */
         .profile-btn{
           display: inline-flex;
           align-items: center;
@@ -178,7 +213,7 @@ export default function NavBar(){
           position: absolute;
           right: 0;
           top: calc(100% + 8px);
-          min-width: 200px;
+          min-width: 220px;
           background: #0f1118;
           border: 1px solid var(--line);
           border-radius: 12px;
@@ -186,7 +221,7 @@ export default function NavBar(){
           display: flex;
           flex-direction: column;
           gap: 6px;
-          z-index: 60;
+          z-index: 9999;
           box-shadow: 0 14px 36px rgba(5,7,12,.35);
         }
         .dropdown-menu a,
