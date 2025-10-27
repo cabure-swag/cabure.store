@@ -21,46 +21,26 @@ export default function HomePage() {
   return (
     <>
       <Head>
-        <title>cabure.store</title>
+        <title>CABURE.STORE</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      {/* Banda de logos: una sola tira continua sin cortes */}
+      {/* Banda de logos */}
       <section>
-        <LogoTickerSeamless brands={brands} />
+        <LogoTickerSeamless brands={brands} pxPerSec={40} />
       </section>
 
-      {/* Grid de marcas (sin "Marcas destacadas") */}
+      {/* Grid de marcas */}
       <main className="container" style={{ paddingTop: 18 }}>
-        <div
-          className="grid"
-          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18 }}
-        >
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18 }}>
           {brands.map((b) => (
-            <Link
-              key={b.slug}
-              href={`/marcas/${b.slug}`}
-              className="brandCard"
-              style={{ textDecoration: 'none' }}
-            >
+            <Link key={b.slug} href={`/marcas/${b.slug}`} className="brandCard" style={{ textDecoration: 'none' }}>
               <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <div
-                  className="cover"
-                  style={{
-                    position: 'relative',
-                    height: 220,
-                    background: '#0e0f16',
-                  }}
-                >
+                <div className="cover" style={{ position: 'relative', height: 220, background: '#0e0f16' }}>
                   <img
                     src={b.cover_url || b.logo_url || '/logo.png'}
                     alt={b.name}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      filter: 'brightness(.85)',
-                    }}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(.85)' }}
                   />
 
                   {/* Overlay inferior con logo + nombre + IG */}
@@ -93,9 +73,7 @@ export default function HomePage() {
                       }}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="h2" style={{ margin: 0, fontSize: 18 }}>
-                        {b.name}
-                      </div>
+                      <div className="h2" style={{ margin: 0, fontSize: 18 }}>{b.name}</div>
                       {b.description && (
                         <div
                           className="small"
@@ -126,28 +104,11 @@ export default function HomePage() {
                         rel="noreferrer"
                         aria-label="Instagram"
                         title="Instagram"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: 36,
-                          height: 36,
-                          borderRadius: 10,
-                          border: '1px solid var(--line)',
-                          textDecoration: 'none',
-                        }}
                       >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          width="18"
-                          height="18"
-                          aria-hidden="true"
-                        >
-                          <path
-                            d="M7 2h10a5 5 0 015 5v10a5 5 0 01-5 5H7a5 5 0 01-5-5V7a5 5 0 015-5zm5 5a5 5 0 100 10 5 5 0 000-10zm6.5-.75a1.25 1.25 0 11-2.5 0 1.25 1.25 0 012.5 0zM12 9a3 3 0 110 6 3 3 0 010-6z"
-                            fill="currentColor"
-                          />
+                        {/* Instagram “oficial” (simpleicons-like) */}
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" width="18" height="18" aria-hidden="true">
+                          <path fill="currentColor"
+                            d="M224,202.66A53.34,53.34,0,1,0,277.34,256,53.38,53.38,0,0,0,224,202.66Zm124.71-41a54,54,0,0,0-30.46-30.46C298.07,120,224,120,224,120s-74.07,0-94.25,11.2a54,54,0,0,0-30.46,30.46C88,161.93,88,236,88,236s0,74.07,11.29,94.25a54,54,0,0,0,30.46,30.46C150,372,224,372,224,372s74.07,0,94.25-11.29a54,54,0,0,0,30.46-30.46C360,310.07,360,236,360,236S360,161.93,348.71,161.71ZM224,338a82,82,0,1,1,82-82A82,82,0,0,1,224,338Zm85-148.71a19.2,19.2,0,1,1,19.2-19.2A19.19,19.19,0,0,1,309,189.29Z"/>
                         </svg>
                       </a>
                     )}
@@ -156,22 +117,22 @@ export default function HomePage() {
               </div>
             </Link>
           ))}
-
-          {/* Si no hay marcas aún, mostramos “placeholders” circulares en la banda solamente. */}
         </div>
       </main>
 
       <style jsx>{`
         :global(.igBtn) {
           color: var(--text);
+          display:inline-flex; align-items:center; justify-content:center;
+          width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line);
           transition: transform 140ms ease, box-shadow 140ms ease;
+          text-decoration:none;
         }
         :global(.igBtn:hover) {
           transform: translateY(-1px);
           box-shadow: 0 6px 18px rgba(124, 58, 237, 0.25);
         }
         :global(.brandCard .card:hover .overlay) {
-          outline: 0;
           box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.35);
         }
       `}</style>
