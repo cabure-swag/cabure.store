@@ -39,6 +39,7 @@ export default function VendedorCatalogo(){
       .select('id,brand_slug,name,price,stock,image_url,description,created_at')
       .eq('brand_slug', slug).order('created_at',{ascending:false});
     const ids = (ps||[]).map(p=>p.id);
+
     let imgs = [];
     if(ids.length){
       const { data: im } = await supabase
@@ -47,7 +48,23 @@ export default function VendedorCatalogo(){
         .in('product_id', ids).order('position');
       imgs = im || [];
     }
-    const merged = (ps||[]).map(p => ({ ...p, stock: Math.max(1,p.stock??1), images: imgs.filter(i=>i.product_id===p.id).slice(0,5) }));
+
+    // categorías asignadas por producto
+    let pc = [];
+    if(ids.length){
+      const { data: rel } = await supabase
+        .from('product_categories')
+        .select('product_id, category_id')
+        .in('product_id', ids);
+      pc = rel || [];
+    }
+
+    const merged = (ps||[]).map(p => ({
+      ...p,
+      stock: Math.max(1,p.stock??1),
+      images: imgs.filter(i=>i.product_id===p.id).slice(0,5),
+      category_ids: pc.filter(r=>r.product_id===p.id).map(r=>r.category_id)
+    }));
     setProducts(merged);
   }
 
@@ -56,7 +73,6 @@ export default function VendedorCatalogo(){
     setCats(cs || []);
   }
 
-  // cargar cuando cambia la marca
   useEffect(() => {
     if(!brand) return;
     loadProducts(brand);
@@ -68,7 +84,8 @@ export default function VendedorCatalogo(){
       .channel(`cats_${brand}`)
       .on('postgres_changes', { event:'*', schema:'public', table:'categories', filter:`brand_slug=eq.${brand}` },
         () => loadCats(brand)
-      ).subscribe();
+      )
+      .subscribe();
     catChannelRef.current = ch;
     return () => { if (catChannelRef.current) supabase.removeChannel(catChannelRef.current); };
   }, [brand]);
@@ -80,7 +97,7 @@ export default function VendedorCatalogo(){
     const { error } = await supabase.from('categories').insert({ brand_slug: brand, name });
     if (error) return alert(error.message);
     e.currentTarget.reset();
-    // loadCats se dispara por realtime
+    // loadCats llega por realtime
   }
 
   async function deleteCategory(id){
@@ -97,7 +114,8 @@ export default function VendedorCatalogo(){
     const stock = Math.max(1, Number(f.get('stock') || 1));
     const description = f.get('description') || null;
     const mainFile = f.get('image'); // opcional
-    const extraFiles = Array.from(f.getAll('images_multi') || []).filter(Boolean).slice(0,5); // hasta 5
+    const extraFiles = Array.from(f.getAll('images_multi') || []).filter(Boolean).slice(0,5);
+    const category_ids = (f.getAll('category_ids') || []).map(x => Number(x));
 
     let image_url = null;
     if (mainFile && mainFile.size > 0) {
@@ -114,14 +132,9 @@ export default function VendedorCatalogo(){
       .select('*').single();
     if (error) return alert(error.message);
 
-    // subir hasta 5 imágenes en bloque (principal + extra)
-    const files = [
-      ...(image_url ? [] : []), // ya usamos image_url como principal si estaba
-      ...extraFiles
-    ].slice(0,5);
-
+    // imágenes adicionales
     let count = 0;
-    for (const file of files) {
+    for (const file of extraFiles) {
       const path = `products/${brand}/${prod.id}/${Date.now()}_${file.name}`;
       const up = await supabase.storage.from('media').upload(path, file);
       if (up.error) { alert(up.error.message); break; }
@@ -129,6 +142,13 @@ export default function VendedorCatalogo(){
       const url = pub?.publicUrl || null;
       await supabase.from('product_images').insert({ product_id: prod.id, url, position: count });
       count++;
+      if (count >= 5) break;
+    }
+
+    if (category_ids.length){
+      const rows = category_ids.map(id => ({ product_id: prod.id, category_id: id }));
+      const { error: e2 } = await supabase.from('product_categories').insert(rows);
+      if (e2) return alert(e2.message);
     }
 
     e.currentTarget.reset();
@@ -139,7 +159,6 @@ export default function VendedorCatalogo(){
     const p = products.find(x => x.id===pid);
     const existing = p?.images?.length || 0;
     if (existing >= 5) return alert('Máximo 5 fotos');
-
     const path = `products/${brand}/${pid}/${Date.now()}_${file.name}`;
     const up = await supabase.storage.from('media').upload(path, file);
     if (up.error) return alert(up.error.message);
@@ -163,8 +182,19 @@ export default function VendedorCatalogo(){
     const price = Number(f.get('price') || 0);
     const stock = Math.max(1, Number(f.get('stock') || 1));
     const description = f.get('description') || null;
+    const catIds = (f.getAll('category_ids') || []).map(x => Number(x));
+
     const { error } = await supabase.from('products').update({ name, price, stock, description }).eq('id', pid);
     if (error) return alert(error.message);
+
+    // Sync categorías: borramos y reinsertamos (simple y seguro)
+    await supabase.from('product_categories').delete().eq('product_id', pid);
+    if (catIds.length){
+      const rows = catIds.map(id => ({ product_id: pid, category_id: id }));
+      const { error: e2 } = await supabase.from('product_categories').insert(rows);
+      if (e2) return alert(e2.message);
+    }
+
     alert('Guardado');
     loadProducts(brand);
   }
@@ -200,11 +230,27 @@ export default function VendedorCatalogo(){
                 <div><label>Precio</label><input className="input" type="number" name="price" min="0" required /></div>
                 <div><label>Stock</label><input className="input" type="number" name="stock" min="1" defaultValue="1" /></div>
                 <div><label>Imagen principal</label><input className="input" type="file" name="image" accept="image/*" /></div>
+
                 <div style={{ gridColumn:'1/-1' }}><label>Descripción</label><textarea className="input" name="description" rows="3" /></div>
+
                 <div style={{ gridColumn:'1/-1' }}>
                   <label>Imágenes adicionales (hasta 5)</label>
                   <input className="input" type="file" name="images_multi" accept="image/*" multiple />
                 </div>
+
+                <div style={{ gridColumn:'1/-1' }}>
+                  <label>Categorías</label>
+                  <div className="row" style={{ flexWrap:'wrap', gap:8 }}>
+                    {cats.map(c => (
+                      <label key={c.id} className="btn-ghost" style={{ padding:'6px 10px', borderRadius:10 }}>
+                        <input type="checkbox" name="category_ids" value={c.id} style={{ marginRight:8 }} />
+                        {c.name}
+                      </label>
+                    ))}
+                    {cats.length===0 && <div className="small">No hay categorías aún.</div>}
+                  </div>
+                </div>
+
                 <div style={{ gridColumn:'1/-1' }}><button className="btn">Crear</button></div>
               </form>
             </div>
@@ -227,7 +273,7 @@ export default function VendedorCatalogo(){
             </div>
           </div>
 
-          <div className="grid" style={{ gridTemplateColumns:'repeat(auto-fill, minmax(360px, 1fr))', marginTop:16, gap:16 }}>
+          <div className="grid" style={{ gridTemplateColumns:'repeat(auto-fill, minmax(380px, 1fr))', marginTop:16, gap:16 }}>
             {products.map(p => (
               <div className="card" key={p.id}>
                 <div className="row">
@@ -252,12 +298,32 @@ export default function VendedorCatalogo(){
                   )}
                 </div>
 
-                {/* Editar datos del producto */}
+                {/* Editar datos + categorías */}
                 <form onSubmit={(e)=>updateProduct(e, p.id)} className="grid" style={{ gridTemplateColumns:'repeat(4, 1fr)', marginTop:10 }}>
                   <div><label>Nombre</label><input className="input" name="name" defaultValue={p.name} required /></div>
                   <div><label>Precio</label><input className="input" name="price" type="number" defaultValue={p.price} required /></div>
                   <div><label>Stock</label><input className="input" name="stock" type="number" min="1" defaultValue={p.stock} required /></div>
                   <div style={{ gridColumn:'1/-1' }}><label>Descripción</label><textarea className="input" name="description" rows="2" defaultValue={p.description || ''} /></div>
+
+                  <div style={{ gridColumn:'1/-1' }}>
+                    <label>Categorías</label>
+                    <div className="row" style={{ flexWrap:'wrap', gap:8 }}>
+                      {cats.map(c => (
+                        <label key={c.id} className="btn-ghost" style={{ padding:'6px 10px', borderRadius:10 }}>
+                          <input
+                            type="checkbox"
+                            name="category_ids"
+                            value={c.id}
+                            defaultChecked={p.category_ids?.includes(c.id)}
+                            style={{ marginRight:8 }}
+                          />
+                          {c.name}
+                        </label>
+                      ))}
+                      {cats.length===0 && <div className="small">No hay categorías aún.</div>}
+                    </div>
+                  </div>
+
                   <div style={{ gridColumn:'1/-1' }} className="row">
                     <button className="btn">Guardar</button>
                     <button type="button" className="btn-ghost" onClick={()=>deleteProduct(p.id)}>Eliminar</button>
