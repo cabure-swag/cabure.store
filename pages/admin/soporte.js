@@ -1,5 +1,5 @@
 // pages/admin/soporte.js
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
 export default function AdminSoporte() {
@@ -8,6 +8,9 @@ export default function AdminSoporte() {
   const [profilesMap, setProfilesMap] = useState({});
   const [active, setActive] = useState(null);
   const [msgs, setMsgs] = useState([]);
+  const [sending, setSending] = useState(false);
+  const inputRef = useRef(null);
+  const channelRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -23,10 +26,8 @@ export default function AdminSoporte() {
         .from('support_tickets')
         .select('id, user_id, subject, status, created_at')
         .order('created_at', { ascending: false });
-
       setTickets(ts || []);
 
-      // Cargar perfiles asociados para mostrar email/avatar
       const uids = Array.from(new Set((ts || []).map(t => t.user_id))).filter(Boolean);
       if (uids.length) {
         const { data: ps } = await supabase
@@ -40,9 +41,10 @@ export default function AdminSoporte() {
     })();
   }, []);
 
+  // Cargar mensajes del ticket activo
   useEffect(() => {
     (async () => {
-      if (!active) return setMsgs([]);
+      if (!active) { setMsgs([]); return; }
       const { data: ms } = await supabase
         .from('support_messages')
         .select('id, ticket_id, message, from_admin, created_at')
@@ -52,23 +54,57 @@ export default function AdminSoporte() {
     })();
   }, [active]);
 
+  // Suscripción realtime al ticket activo
+  useEffect(() => {
+    if (!active) return;
+    if (channelRef.current) supabase.removeChannel(channelRef.current);
+
+    const ch = supabase
+      .channel(`support_messages_${active.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'support_messages',
+        filter: `ticket_id=eq.${active.id}`,
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setMsgs(m => [...m, payload.new]);
+        }
+      })
+      .subscribe();
+
+    channelRef.current = ch;
+    return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
+  }, [active]);
+
   async function reply(e) {
     e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    const message = f.get('message');
+    if (sending || !active) return;
+    const message = inputRef.current?.value?.trim();
     if (!message) return;
+    setSending(true);
+
+    // Optimista: mostramos el mensaje enseguida
+    const optimistic = {
+      id: `tmp_${Date.now()}`,
+      ticket_id: active.id,
+      message,
+      from_admin: true,
+      created_at: new Date().toISOString(),
+    };
+    setMsgs(m => [...m, optimistic]);
+    inputRef.current.value = '';
+
     const { error } = await supabase
       .from('support_messages')
       .insert({ ticket_id: active.id, message, from_admin: true });
-    if (error) return alert(`No se pudo enviar: ${error.message}`);
-    e.currentTarget.reset();
-    // refrescar
-    const { data: ms } = await supabase
-      .from('support_messages')
-      .select('id, ticket_id, message, from_admin, created_at')
-      .eq('ticket_id', active.id)
-      .order('created_at', { ascending: true });
-    setMsgs(ms || []);
+
+    if (error) {
+      alert(`No se pudo enviar: ${error.message}`);
+      // revertir optimista (opcional)
+      setMsgs(m => m.filter(x => x.id !== optimistic.id));
+    }
+    setSending(false);
   }
 
   if (!ok) return <main className="container"><h1 className="h1">Admin — Soporte</h1><p className="small">Necesitás cuenta admin.</p></main>;
@@ -136,15 +172,17 @@ export default function AdminSoporte() {
                         {m.from_admin ? 'Admin' : 'Cliente'}
                       </div>
                       <div>{m.message}</div>
-                      <div className="small" style={{ opacity: .6, marginTop: 6 }}>{new Date(m.created_at).toLocaleString()}</div>
+                      <div className="small" style={{ opacity: .6, marginTop: 6 }}>
+                        {new Date(m.created_at).toLocaleString()}
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
 
               <form onSubmit={reply} className="row" style={{ marginTop: 12 }}>
-                <input className="input" name="message" placeholder="Escribí una respuesta..." />
-                <button className="btn">Enviar</button>
+                <input className="input" ref={inputRef} placeholder="Escribí una respuesta..." />
+                <button className="btn" disabled={sending}>{sending ? 'Enviando…' : 'Enviar'}</button>
               </form>
             </>
           )}
