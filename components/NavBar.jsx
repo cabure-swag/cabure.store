@@ -10,7 +10,7 @@ export default function NavBar(){
   const [hasVendor, setHasVendor] = useState(false);
   const dropRef = useRef(null);
 
-  // Cargar sesión + roles
+  // Sesión + roles
   useEffect(() => {
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -24,7 +24,7 @@ export default function NavBar(){
     })();
   }, []);
 
-  // Cerrar al clickear fuera
+  // Cerrar al click externo
   useEffect(() => {
     const onClick = (e) => {
       if (!dropRef.current) return;
@@ -55,19 +55,11 @@ export default function NavBar(){
               title={user ? (user.email || 'Cuenta') : 'Iniciar sesión'}
             >
               {user?.user_metadata?.avatar_url ? (
-                <img
-                  className="avatar-lg"
-                  src={user.user_metadata.avatar_url}
-                  alt="Cuenta"
-                />
+                <img className="avatar-lg" src={user.user_metadata.avatar_url} alt="Cuenta" />
               ) : (
                 <span className="avatar-placeholder">👤</span>
               )}
-              <svg
-                className="chev"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
-              >
+              <svg className="chev" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
                 <path d="M7 10l5 5 5-5" fill="currentColor" />
               </svg>
             </button>
@@ -79,10 +71,7 @@ export default function NavBar(){
                   <>
                     {hasVendor && <Link role="menuitem" href="/vendedor">Vendedor</Link>}
                     {isAdmin && <Link role="menuitem" href="/admin">Admin</Link>}
-                    <button
-                      role="menuitem"
-                      onClick={() => supabase.auth.signOut().then(()=>location.href='/')}
-                    >
+                    <button role="menuitem" onClick={() => supabase.auth.signOut().then(()=>location.href='/')}>
                       Cerrar sesión
                     </button>
                   </>
@@ -93,7 +82,7 @@ export default function NavBar(){
         </nav>
       </div>
 
-      {/* Estilos globales para asegurar animación y tamaños (no los pisa nada) */}
+      {/* Estilos globales fuertes para que sí se apliquen */}
       <style jsx global>{`
         .nav {
           position: sticky;
@@ -112,7 +101,7 @@ export default function NavBar(){
           gap: 12px;
         }
 
-        /* Marca animada: gradiente en movimiento, forzado */
+        /* Marca animada */
         .brand.cab-anim{
           font-weight: 900;
           letter-spacing: .2px;
@@ -121,7 +110,7 @@ export default function NavBar(){
           background-size: 200% auto;
           -webkit-background-clip: text;
           background-clip: text;
-          color: transparent !important;
+          color: transparent !important; /* fuerza visibilidad */
           animation: cabGradientMove 8s linear infinite;
           display: inline-block;
         }
@@ -146,7 +135,7 @@ export default function NavBar(){
         }
         .btn-ghost:hover{ transform: translateY(-1px); box-shadow: 0 6px 18px rgba(124,58,237,.16); }
 
-        /* Botón de perfil (avatar + chevrón) */
+        /* Botón del menú del perfil */
         .profile-btn{
           display: inline-flex;
           align-items: center;
