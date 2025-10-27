@@ -7,13 +7,14 @@ import { useEffect, useRef } from 'react';
 export default function LogoTickerDraggable({ brands = [], speed = 20 }) {
   // Intercalado simple (A,B,C,A,B,C...)
   const ordered = [...brands];
-  const items = [...ordered, ...ordered, ...ordered]; // triple para continuidad
+  // Triplicamos para que sea realmente continuo
+  const items = [...ordered, ...ordered, ...ordered];
 
   const wrapRef = useRef(null);
   const trackRef = useRef(null);
   const state = useRef({
     x: 0,
-    vx: -0.4,          // velocidad base (px/frame). Negativa = izquierda
+    vx: -0.4,          // velocidad base (px/frame). Negativa = hacia la izquierda
     dragging: false,
     lastX: 0,
     raf: 0,
@@ -24,7 +25,7 @@ export default function LogoTickerDraggable({ brands = [], speed = 20 }) {
     const track = trackRef.current;
     if (!wrap || !track) return;
 
-    const SLOT_W = 112; // aprox 64 + márgenes
+    const SLOT_W = 112; // ~64px logo + márgenes
     const totalW = items.length * SLOT_W;
 
     let lastTs = performance.now();
@@ -97,9 +98,14 @@ export default function LogoTickerDraggable({ brands = [], speed = 20 }) {
     <div ref={wrapRef} className="tickerX">
       <div ref={trackRef} className="trackX">
         {items.map((b, i) => (
-          <a key={i} className="slotX"
-             href={b?.slug ? `/marcas/${b.slug}` : '#'}
-             onClick={(e) => { if (!b?.slug) e.preventDefault(); }}>
+          <a
+            key={i}
+            className="slotX"
+            href={b?.slug ? `/marcas/${b.slug}` : '#'}
+            onClick={(e) => { if (!b?.slug) e.preventDefault(); }}
+            title={b?.slug || ''}
+            style={{ pointerEvents: b?.slug ? 'auto' : 'none' }}
+          >
             {b?.logo_url ? <img src={b.logo_url} alt={b.slug} /> : null}
           </a>
         ))}
