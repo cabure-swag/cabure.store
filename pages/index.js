@@ -1,4 +1,3 @@
-// pages/index.js
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import LogoTickerDraggable from '../ui/LogoTickerDraggable';
@@ -42,17 +41,15 @@ export default function Home() {
                       <div style={{ fontWeight: 900, fontSize: 20 }}>{b.name}</div>
                       <div className="small" style={{ marginTop: 6, maxHeight: 48, overflow: 'hidden' }}>{b.description}</div>
                     </div>
-                    {/* Badge Ver */}
                     <div className="badge">Ver</div>
                   </div>
 
-                  {/* IG abajo a la derecha, más visible */}
                   {b.instagram && (
                     <div style={{ display:'flex', justifyContent:'flex-end', marginTop:10 }}>
                       <a
                         href={b.instagram} target="_blank" rel="noreferrer"
                         onClick={(e)=>e.stopPropagation()}
-                        className="btn-ghost" title="Instagram"
+                        className="btn-ghost ig-anim" title="Instagram"
                         style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'8px 10px' }}
                       >
                         <InstagramIcon style={{ fontSize: 18 }} />
