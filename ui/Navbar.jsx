@@ -1,12 +1,10 @@
 // ui/Navbar.jsx
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 function useOutside(ref, onClose) {
   useEffect(() => {
-    const h = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) onClose();
-    };
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [ref, onClose]);
@@ -22,47 +20,42 @@ export default function Navbar() {
 
   useEffect(() => {
     (async () => {
-      // sesión
       const { data } = await supabase.auth.getSession();
       const u = data?.session?.user || null;
       setUser(u);
 
-      if (!u) {
-        setIsAdmin(false);
-        setIsVendor(false);
-        return;
-      }
+      if (!u) { setIsAdmin(false); setIsVendor(false); return; }
 
-      // foto desde profiles (si existe) o la de Google
+      // Foto desde profiles o Google
       const { data: prof } = await supabase
         .from('profiles')
         .select('avatar_url')
         .eq('id', u.id)
         .maybeSingle();
-
       if (prof?.avatar_url) {
         u.user_metadata = { ...(u.user_metadata || {}), picture: prof.avatar_url };
         setUser({ ...u });
       }
 
-      // ADMIN: si mi email está en admin_emails
+      // Admin por admin_emails
       const { data: admins } = await supabase
         .from('admin_emails')
         .select('email')
         .eq('email', u.email);
-
       const admin = Array.isArray(admins) && admins.length > 0;
 
-      // VENDOR: si tengo alguna asignación o soy admin
-      let vendor = false;
-      const { data: vb } = await supabase
-        .from('vendor_brands')
-        .select('brand_slug', { count: 'exact', head: true })
-        .eq('user_id', u.id);
-      vendor = (vb?.length ?? 0) > 0 || (vb?.count ?? 0) > 0;
+      // Vendor si tiene asignaciones o sos admin
+      let vendor = admin;
+      if (!vendor) {
+        const { count } = await supabase
+          .from('vendor_brands')
+          .select('brand_slug', { count: 'exact', head: true })
+          .eq('user_id', u.id);
+        vendor = (count ?? 0) > 0;
+      }
 
-      setIsAdmin(!!admin);
-      setIsVendor(!!vendor || !!admin);
+      setIsAdmin(admin);
+      setIsVendor(vendor);
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) =>
@@ -89,8 +82,6 @@ export default function Navbar() {
       <div className="nav-inner">
         <a href="/" className="brand">CABURE.STORE</a>
         <nav className="menu">
-          {isVendor && <a className="badge" href="/vendedor">Vendedor</a>}
-          {isAdmin && <a className="badge" href="/admin">Admin</a>}
           {!user ? (
             <button className="btn-ghost" onClick={signIn}>Iniciar sesión (Google)</button>
           ) : (
@@ -100,8 +91,15 @@ export default function Navbar() {
               </button>
               <div className="dropdown-menu">
                 <div className="small" style={{ padding: '6px 10px' }}>Hola, {user.email}</div>
+
+                {/* Links del panel de cuenta */}
                 <a href="/compras">Mis Compras</a>
                 <a href="/soporte">Soporte</a>
+
+                {/* Accesos a Vendedor/Admin dentro del dropdown */}
+                {isVendor && <a href="/vendedor">Vendedor</a>}
+                {isAdmin && <a href="/admin">Admin</a>}
+
                 <hr style={{ border: 'none', borderTop: '1px solid var(--line)', margin: '8px 0' }} />
                 <button onClick={signOut}>Cerrar sesión</button>
               </div>
