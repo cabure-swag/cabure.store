@@ -14,7 +14,6 @@ function useBrand(slug){
   }, [slug]);
   return brand;
 }
-
 function useCats(slug){
   const [cats, setCats] = useState([]);
   useEffect(() => {
@@ -24,7 +23,6 @@ function useCats(slug){
   }, [slug]);
   return cats;
 }
-
 function useProducts(slug){
   const [items, setItems] = useState([]);
   useEffect(() => {
@@ -35,7 +33,6 @@ function useProducts(slug){
         .select('id,brand_slug,name,price,stock,image_url,description,created_at')
         .eq('brand_slug', slug)
         .order('created_at', { ascending: false });
-
       const ids = (prods || []).map(p => p.id);
       let images = [];
       if(ids.length){
@@ -54,7 +51,6 @@ function useProducts(slug){
           .in('product_id', ids);
         pc = rel || [];
       }
-
       const grouped = (prods || []).map(p => ({
         ...p,
         stock: Math.max(1, p.stock ?? 1),
@@ -75,26 +71,21 @@ export default function BrandPage(){
   const products = useProducts(slug);
 
   const [selectedCats, setSelectedCats] = useState([]);
-  const [cart, setCart] = useState([]); // {id,name,price,qty,stock}
-
-  // filtro por categorías (si no hay selección, mostrar todo)
+  const [cart, setCart] = useState([]);
   const filtered = useMemo(() => {
     if (!selectedCats.length) return products;
     const set = new Set(selectedCats);
     return products.filter(p => (p.category_ids || []).some(id => set.has(id)));
   }, [products, selectedCats]);
 
-  function toggleCat(id){
-    setSelectedCats(arr => arr.includes(id) ? arr.filter(x => x!==id) : [...arr, id]);
-  }
-
+  function toggleCat(id){ setSelectedCats(arr => arr.includes(id) ? arr.filter(x => x!==id) : [...arr, id]); }
   function add(p){
     setCart(cs => {
       const idx = cs.findIndex(x => x.id === p.id);
       if(idx>=0){
-        const item = cs[idx];
-        if (item.qty >= p.stock) return cs;
-        const c = [...cs]; c[idx] = {...item, qty: item.qty + 1}; return c;
+        const it = cs[idx];
+        if (it.qty >= p.stock) return cs;
+        const c = [...cs]; c[idx] = {...it, qty: it.qty + 1}; return c;
       }
       return [...cs, { id: p.id, name: p.name, price: p.price, qty: 1, stock: p.stock }];
     });
@@ -102,13 +93,8 @@ export default function BrandPage(){
   function dec(id){ setCart(cs => cs.map(c => c.id===id? {...c, qty: Math.max(1, c.qty-1)}:c)); }
   function inc(id){ setCart(cs => cs.map(c => c.id===id? {...c, qty: Math.min(c.stock, c.qty+1)}:c)); }
   function rm(id){ setCart(cs => cs.filter(c => c.id !== id)); }
-
   const subtotal = useMemo(() => cart.reduce((s,c)=>s+c.price*c.qty,0), [cart]);
-
-  function goCheckout(){
-    localStorage.setItem(`cart:${slug}`, JSON.stringify(cart));
-    router.push(`/checkout/${slug}`);
-  }
+  function goCheckout(){ localStorage.setItem(`cart:${slug}`, JSON.stringify(cart)); router.push(`/checkout/${slug}`); }
 
   return (
     <main>
@@ -116,33 +102,33 @@ export default function BrandPage(){
         <div className="container"><div className="small">Cargando…</div></div>
       ) : (
         <>
-          {/* HERO (portada) */}
-          <div style={{ position:'relative', height: 280, background:'#0e0f16' }}>
+          <div style={{ position:'relative', height: 300, background:'#0e0f16' }}>
             <img src={brand.cover_url || brand.logo_url || '/logo.png'}
                  alt={brand.name}
                  style={{ width:'100%', height:'100%', objectFit:'cover', filter:'brightness(.82)' }}/>
           </div>
 
-          {/* Caja superpuesta + Carrito alineado arriba */}
-          <div className="container" style={{ marginTop: -64 }}>
+          <div className="container" style={{ marginTop: -72 }}>
             <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap:20 }}>
-              <div className="card" style={{
-                display:'flex', gap:16, alignItems:'center',
-                background:'rgba(17,18,26,.6)', backdropFilter:'blur(8px)'
-              }}>
-                <img
-                  src={brand.logo_url || '/logo.png'} alt={brand.name}
-                  style={{ width:100, height:100, borderRadius:50, objectFit:'cover', border:'2px solid var(--line)' }}
-                />
+              <div className="card" style={{ display:'flex', gap:16, alignItems:'center',
+                background:'rgba(17,18,26,.6)', backdropFilter:'blur(8px)' }}>
+                <img src={brand.logo_url || '/logo.png'} alt={brand.name}
+                     style={{ width:110, height:110, borderRadius:55, objectFit:'cover', border:'2px solid var(--line)' }}/>
                 <div style={{ flex:1 }}>
                   <div className="h1" style={{ margin:0 }}>{brand.name}</div>
                   <div className="small" style={{ color:'var(--muted)' }}>{brand.description}</div>
                   <div className="small" style={{ color:'var(--muted)', marginTop:6 }}>
-                    {brand.ship_domicilio!=null && <>Domicilio: ${brand.ship_domicilio} · </>}
-                    {brand.ship_sucursal!=null && <>Sucursal: ${brand.ship_sucursal} · </>}
+                    {brand.ship_domicilio!=null && <>Envío a domicilio: ${brand.ship_domicilio} · </>}
+                    {brand.ship_sucursal!=null && <>Envío a sucursal: ${brand.ship_sucursal} · </>}
                     {(brand.ship_free_from||0) > 0 && <>Envío gratis desde: ${brand.ship_free_from}</>}
                   </div>
                 </div>
+                {brand.instagram && (
+                  <a className="btn-ghost" href={brand.instagram.startsWith('http')? brand.instagram : `https://instagram.com/${brand.instagram.replace('@','')}`}
+                     target="_blank" rel="noreferrer" style={{ alignSelf:'flex-start' }}>
+                    IG ↗
+                  </a>
+                )}
               </div>
 
               <div className="card" style={{ position:'sticky', top:90, alignSelf:'start' }}>
@@ -169,18 +155,13 @@ export default function BrandPage(){
             </div>
           </div>
 
-          {/* Filtro por categorías (ninguna seleccionada => todo) */}
+          {/* Filtro por categorías */}
           <div className="container" style={{ marginTop: 12 }}>
             {cats.length > 0 && (
               <div className="card" style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                 {cats.map(c => (
                   <label key={c.id} className="btn-ghost" style={{ padding:'6px 10px', borderRadius:10 }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedCats.includes(c.id)}
-                      onChange={()=>toggleCat(c.id)}
-                      style={{ marginRight:8 }}
-                    />
+                    <input type="checkbox" checked={selectedCats.includes(c.id)} onChange={()=>toggleCat(c.id)} style={{ marginRight:8 }}/>
                     {c.name}
                   </label>
                 ))}
@@ -189,13 +170,14 @@ export default function BrandPage(){
             )}
           </div>
 
-          {/* Productos grandes (4× desktop, 2× mobile) con carrusel sin scrollbar */}
+          {/* Productos grandes (4 por fila desktop, 2 en mobile) */}
           <div className="container" style={{ marginTop: 14 }}>
             <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap:20 }}>
-              <div className="grid-products">
+              <div className="grid-products" style={{ display:'grid', gap:16,
+                gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))' }}>
                 {filtered.map(p => (
                   <div className="card" key={p.id} style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                    <div style={{ position:'relative', height:300, background:'#0e0f16', borderRadius:12, overflow:'hidden' }}>
+                    <div style={{ position:'relative', height:340, background:'#0e0f16', borderRadius:12, overflow:'hidden' }}>
                       <div style={{
                         display:'flex', width:'100%', height:'100%',
                         overflowX:'auto', scrollSnapType:'x mandatory',
@@ -230,8 +212,6 @@ export default function BrandPage(){
                   </div>
                 ))}
               </div>
-
-              {/* columna fantasma para mantener el sticky del carrito */}
               <div className="hide-mobile" />
             </div>
           </div>
