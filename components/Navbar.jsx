@@ -1,11 +1,54 @@
+// components/NavBar.jsx
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { supabase } from '../lib/supabaseClient';
-export default function Navbar(){
-  const [user,setUser]=useState(null);const [role,setRole]=useState(null);
-  useEffect(()=>{(async()=>{const {data}=await supabase.auth.getSession();const u=data?.session?.user||null;setUser(u);if(u){const {data:prof}=await supabase.from('profiles').select('role').eq('id',u.id).single();setRole(prof?.role||'user');}})();const {data:sub}=supabase.auth.onAuthStateChange((_e,s)=>setUser(s?.user||null));return()=>sub?.subscription?.unsubscribe();},[]);
-  const signIn=async()=>{await supabase.auth.signInWithOAuth({provider:'google',options:{redirectTo:typeof window!=='undefined'?window.location.origin:undefined}})};const signOut=async()=>{await supabase.auth.signOut();window.location.reload()};
-  return (<header className='nav'><div className='nav-inner'><a href='/' className='brand'>CABURE</a><div className='menu'>
-    <a className='badge' href='/marcas'>Marcas</a><a className='badge' href='/compras'>Mis Compras</a><a className='badge' href='/soporte'>Soporte</a>{(role==='vendor'||role==='admin')&&<a className='badge' href='/vendedor'>Vendedor</a>}{role==='admin'&&<a className='badge' href='/admin'>Admin</a>}
-    {!user?<button className='btn-ghost' onClick={signIn}>Iniciar sesión (Google)</button>:<button className='btn-ghost' onClick={signOut}>Salir</button>}
-  </div></div></header>);
+
+export default function NavBar(){
+  const [open, setOpen] = useState(false);
+  const [user, setUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [hasVendor, setHasVendor] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const u = session?.user || null;
+      setUser(u || null);
+      if (!u) return;
+      const { data: a } = await supabase.from('admin_emails').select('email').eq('email', u.email);
+      setIsAdmin((a||[]).length>0);
+      const { data: vb } = await supabase.from('vendor_brands').select('brand_slug').eq('user_id', u.id);
+      setHasVendor((vb||[]).length>0 || (a||[]).length>0); // admin también ve vendedor
+    })();
+  }, []);
+
+  return (
+    <nav className="nav">
+      <div className="nav-inner">
+        <Link href="/" className="brand">cabure.store</Link>
+        <div className="menu">
+          <Link className="btn-ghost" href="/">Inicio</Link>
+          <Link className="btn-ghost" href="/compras">Mis compras</Link>
+          <Link className="btn-ghost" href="/soporte">Soporte</Link>
+          <div className={`dropdown ${open?'open':''}`}>
+            <button className="btn-ghost" onClick={()=>setOpen(v=>!v)}>
+              {user?.user_metadata?.avatar_url
+                ? <img className="avatar" src={user.user_metadata.avatar_url} alt="yo" />
+                : <span>Perfil</span>}
+            </button>
+            <div className="dropdown-menu">
+              {!user && <Link href="/login">Iniciar sesión</Link>}
+              {user && (
+                <>
+                  {hasVendor && <Link href="/vendedor/perfil">Vendedor</Link>}
+                  {isAdmin && <Link href="/admin">Admin</Link>}
+                  <button onClick={() => supabase.auth.signOut().then(()=>location.href='/')}>Cerrar sesión</button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
 }
