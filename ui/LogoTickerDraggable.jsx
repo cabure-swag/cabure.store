@@ -1,19 +1,23 @@
 // ui/LogoTickerDraggable.jsx
-// Banda de marcas: continua, centrada, drag + inercia, sin cortes.
-
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 export default function LogoTickerDraggable({ brands = [], speed = 18 }) {
-  // si no hay marcas, mostramos “espacios” vacíos para ver la banda igual
   const base = brands.length ? brands : new Array(6).fill({ slug: null, logo_url: null });
 
-  // Repetimos suficiente número de veces para superar 3× el ancho de pantalla.
-  const [repeats, setRepeats] = useState(6);
-  useEffect(() => {
+  const [repeats, setRepeats] = useState(12);
+  const computeRepeats = () => {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
-    const perLogo = 72 + 28 * 2; // tamaño + márgenes
-    const need = Math.ceil((vw * 3) / (base.length * perLogo));
-    setRepeats(Math.max(6, need));
+    const perLogo = 72 + 28 * 2; // diámetro + márgenes
+    const need = Math.ceil((vw * 4) / (base.length * perLogo)); // 4× ancho viewport
+    setRepeats(Math.max(12, need));
+  };
+
+  useEffect(() => {
+    computeRepeats();
+    const onResize = () => computeRepeats();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [base.length]);
 
   const items = useMemo(() => {
@@ -26,7 +30,6 @@ export default function LogoTickerDraggable({ brands = [], speed = 18 }) {
   const trackRef = useRef(null);
   const st = useRef({ x: 0, vx: -0.6, dragging: false, lastX: 0, trackW: 0, raf: 0 });
 
-  // Medimos ancho del track y centramos
   useLayoutEffect(() => {
     const track = trackRef.current;
     if (!track) return;
@@ -35,7 +38,6 @@ export default function LogoTickerDraggable({ brands = [], speed = 18 }) {
     track.style.transform = `translate3d(${st.current.x}px,0,0)`;
   }, [items.length]);
 
-  // Animación + inercia + wrap continuo
   useEffect(() => {
     const track = trackRef.current;
     if (!track) return;
@@ -51,8 +53,7 @@ export default function LogoTickerDraggable({ brands = [], speed = 18 }) {
         if (Math.abs(S.vx) < 0.02) S.vx = -speed * 0.02;
       }
       const W = S.trackW || track.scrollWidth || 1;
-      // wrap aritmético estable
-      S.x = ((S.x % W) + W) % W - W;
+      S.x = ((S.x % W) + W) % W - W; // wrap continuo
       track.style.transform = `translate3d(${S.x}px,0,0)`;
       S.raf = requestAnimationFrame(frame);
     };
@@ -61,7 +62,6 @@ export default function LogoTickerDraggable({ brands = [], speed = 18 }) {
     return () => cancelAnimationFrame(st.current.raf);
   }, [speed]);
 
-  // Drag
   useEffect(() => {
     const wrap = wrapRef.current;
     const S = st.current;
@@ -71,10 +71,7 @@ export default function LogoTickerDraggable({ brands = [], speed = 18 }) {
     const onMove = (e) => {
       if (!S.dragging) return;
       const x = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const dx = x - S.lastX;
-      S.x += dx;
-      S.vx = dx;
-      S.lastX = x;
+      const dx = x - S.lastX; S.x += dx; S.vx = dx; S.lastX = x;
     };
     const onUp = () => { S.dragging = false; };
 
