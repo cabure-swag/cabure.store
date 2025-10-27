@@ -21,16 +21,18 @@ export default function VendedorPerfil(){
 
       let list = [];
       if (isAdmin) {
-        const { data } = await supabase.from('brands').select('slug,name,description,logo_url,cover_url,ship_domicilio,ship_sucursal,ship_free_from').order('name');
+        const { data } = await supabase
+          .from('brands')
+          .select('slug,name,description,instagram,logo_url,cover_url,ship_domicilio,ship_sucursal,ship_free_from')
+          .order('name');
         list = data || [];
       } else {
         const { data } = await supabase
           .from('vendor_brands')
-          .select('brand_slug, brands!inner(name, description, logo_url, cover_url, ship_domicilio, ship_sucursal, ship_free_from)')
+          .select('brand_slug, brands!inner(name, description, instagram, logo_url, cover_url, ship_domicilio, ship_sucursal, ship_free_from)')
           .eq('user_id', u.id);
         list = (data||[]).map(x => ({ slug: x.brand_slug, ...x.brands }));
       }
-
       setBrands(list);
       if (list.length) setBrandSlug(list[0].slug);
     })();
@@ -42,6 +44,7 @@ export default function VendedorPerfil(){
     setSaving(true);
     const f = new FormData(e.currentTarget);
     const description = f.get('description') || null;
+    const instagram = f.get('instagram') || null;
     const ship_domicilio = f.get('ship_domicilio') === '' ? null : Number(f.get('ship_domicilio'));
     const ship_sucursal = f.get('ship_sucursal') === '' ? null : Number(f.get('ship_sucursal'));
     const ship_free_from = Number(f.get('ship_free_from') || 0);
@@ -74,7 +77,8 @@ export default function VendedorPerfil(){
       p_cover_url: cover_url,
       p_ship_domicilio: ship_domicilio,
       p_ship_sucursal: ship_sucursal,
-      p_ship_free_from: ship_free_from
+      p_ship_free_from: ship_free_from,
+      p_instagram: instagram
     });
 
     setSaving(false);
@@ -83,6 +87,8 @@ export default function VendedorPerfil(){
   }
 
   if(!me) return <main className="container"><div className="small">Cargando…</div></main>;
+
+  const sel = brands.find(b => b.slug===brandSlug);
 
   return (
     <main className="container">
@@ -101,20 +107,27 @@ export default function VendedorPerfil(){
 
       {brandSlug && (
         <form onSubmit={saveBrand} className="card grid" style={{ gridTemplateColumns:'1fr 1fr' }}>
-          <div style={{ gridColumn:'1/-1' }}><label>Descripción</label><textarea className="input" name="description" rows="3"
-            defaultValue={brands.find(b => b.slug===brandSlug)?.description || ''} /></div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label>Descripción</label>
+            <textarea className="input" name="description" rows="3" defaultValue={sel?.description || ''} />
+          </div>
+
+          <div><label>Instagram (URL o @handle)</label><input className="input" name="instagram" defaultValue={sel?.instagram || ''} /></div>
+          <div />
 
           <div><label>Logo</label><input className="input" type="file" name="logo" accept="image/*" /></div>
           <div><label>Portada</label><input className="input" type="file" name="cover" accept="image/*" /></div>
 
           <div><label>Envío a domicilio (ARS)</label><input className="input" type="number" name="ship_domicilio"
-            defaultValue={brands.find(b => b.slug===brandSlug)?.ship_domicilio ?? ''} placeholder="vacío = desactivado" /></div>
+            defaultValue={sel?.ship_domicilio ?? ''} placeholder="vacío = desactivado" /></div>
           <div><label>Envío a sucursal (ARS)</label><input className="input" type="number" name="ship_sucursal"
-            defaultValue={brands.find(b => b.slug===brandSlug)?.ship_sucursal ?? ''} placeholder="vacío = desactivado" /></div>
+            defaultValue={sel?.ship_sucursal ?? ''} placeholder="vacío = desactivado" /></div>
           <div><label>Gratis desde (ARS)</label><input className="input" type="number" name="ship_free_from"
-            defaultValue={brands.find(b => b.slug===brandSlug)?.ship_free_from || 0} /></div>
+            defaultValue={sel?.ship_free_from || 0} /></div>
 
-          <div style={{ gridColumn:'1/-1' }}><button className="btn" disabled={saving}>{saving?'Guardando…':'Guardar marca'}</button></div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <button className="btn" disabled={saving}>{saving?'Guardando…':'Guardar marca'}</button>
+          </div>
         </form>
       )}
     </main>
