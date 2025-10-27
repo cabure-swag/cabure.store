@@ -8,7 +8,7 @@ function useBrand(slug){
   useEffect(() => {
     if(!slug) return;
     supabase.from('brands')
-      .select('slug,name,description,instagram,logo_url,cover_url,ship_domicilio,ship_sucursal,ship_free_from,mp_fee')
+      .select('slug,name,description,instagram,logo_url,cover_url,ship_domicilio,ship_sucursal,ship_free_from')
       .eq('slug', slug).maybeSingle()
       .then(({data}) => setBrand(data || null));
   }, [slug]);
@@ -102,19 +102,20 @@ export default function BrandPage(){
         <div className="container"><div className="small">Cargando…</div></div>
       ) : (
         <>
+          {/* portada */}
           <div style={{ position:'relative', height: 300, background:'#0e0f16' }}>
             <img src={brand.cover_url || brand.logo_url || '/logo.png'}
                  alt={brand.name}
                  style={{ width:'100%', height:'100%', objectFit:'cover', filter:'brightness(.82)' }}/>
           </div>
 
+          {/* cabecera + carrito en layout responsivo */}
           <div className="container" style={{ marginTop: -72 }}>
-            <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap:20 }}>
-              <div className="card" style={{ display:'flex', gap:16, alignItems:'center',
-                background:'rgba(17,18,26,.6)', backdropFilter:'blur(8px)' }}>
+            <div className="brand-layout">
+              <div className="brand-header card">
                 <img src={brand.logo_url || '/logo.png'} alt={brand.name}
                      style={{ width:110, height:110, borderRadius:55, objectFit:'cover', border:'2px solid var(--line)' }}/>
-                <div style={{ flex:1 }}>
+                <div className="brand-header-info">
                   <div className="h1" style={{ margin:0 }}>{brand.name}</div>
                   <div className="small" style={{ color:'var(--muted)' }}>{brand.description}</div>
                   <div className="small" style={{ color:'var(--muted)', marginTop:6 }}>
@@ -131,7 +132,7 @@ export default function BrandPage(){
                 )}
               </div>
 
-              <div className="card" style={{ position:'sticky', top:90, alignSelf:'start' }}>
+              <div className="cart card">
                 <strong>Tu pedido</strong>
                 <div className="mt" style={{ display:'flex', flexDirection:'column', gap:8 }}>
                   {cart.length===0 ? <div className="small">Todavía no agregaste productos.</div> : cart.map(c=>(
@@ -155,7 +156,7 @@ export default function BrandPage(){
             </div>
           </div>
 
-          {/* Filtro por categorías */}
+          {/* filtros */}
           <div className="container" style={{ marginTop: 12 }}>
             {cats.length > 0 && (
               <div className="card" style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
@@ -170,51 +171,64 @@ export default function BrandPage(){
             )}
           </div>
 
-          {/* Productos grandes (4 por fila desktop, 2 en mobile) */}
+          {/* productos: llenan todo el ancho, sin -/+ en la card */}
           <div className="container" style={{ marginTop: 14 }}>
-            <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap:20 }}>
-              <div className="grid-products" style={{ display:'grid', gap:16,
-                gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))' }}>
-                {filtered.map(p => (
-                  <div className="card" key={p.id} style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                    <div style={{ position:'relative', height:340, background:'#0e0f16', borderRadius:12, overflow:'hidden' }}>
-                      <div style={{
-                        display:'flex', width:'100%', height:'100%',
-                        overflowX:'auto', scrollSnapType:'x mandatory',
-                        scrollbarWidth:'none'
-                      }}>
-                        <style jsx>{` div::-webkit-scrollbar{ display:none; } `}</style>
-                        {(p.images.length ? p.images : [{ url: p.image_url }]).slice(0,5).map((im,idx)=>(
-                          <img key={idx} src={im?.url || p.image_url || '/logo.png'} alt={p.name}
-                            style={{ width:'100%', height:'100%', objectFit:'cover', flex:'0 0 100%', scrollSnapAlign:'center' }}/>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <strong>{p.name}</strong>
-                      {p.description && <div className="small" style={{ marginTop:6 }}>{p.description}</div>}
-                    </div>
-
-                    <div className="row">
-                      <div className="small">Stock: {p.stock}</div>
-                      <div style={{ fontWeight:700 }}>${p.price}</div>
-                    </div>
-
-                    <div className="row" style={{ gap:6, justifyContent:'space-between' }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <button className="btn-ghost" onClick={()=>dec(p.id)}>-</button>
-                        <div className="badge">{(cart.find(c=>c.id===p.id)?.qty) || 0}</div>
-                        <button className="btn-ghost" onClick={()=>inc(p.id)}>+</button>
-                      </div>
-                      <button className="btn" onClick={()=>add(p)}>Agregar</button>
+            <div className="grid-products">
+              {filtered.map(p => (
+                <div className="card" key={p.id} style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div style={{ position:'relative', height:340, background:'#0e0f16', borderRadius:12, overflow:'hidden' }}>
+                    <div style={{
+                      display:'flex', width:'100%', height:'100%',
+                      overflowX:'auto', scrollSnapType:'x mandatory',
+                      scrollbarWidth:'none'
+                    }}>
+                      <style jsx>{` div::-webkit-scrollbar{ display:none; } `}</style>
+                      {(p.images.length ? p.images : [{ url: p.image_url }]).slice(0,5).map((im,idx)=>(
+                        <img key={idx} src={im?.url || p.image_url || '/logo.png'} alt={p.name}
+                          style={{ width:'100%', height:'100%', objectFit:'cover', flex:'0 0 100%', scrollSnapAlign:'center' }}/>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-              <div className="hide-mobile" />
+
+                  <div>
+                    <strong>{p.name}</strong>
+                    {p.description && <div className="small" style={{ marginTop:6 }}>{p.description}</div>}
+                  </div>
+
+                  <div className="row">
+                    <div className="small">Stock: {p.stock}</div>
+                    <div style={{ fontWeight:700 }}>${p.price}</div>
+                  </div>
+
+                  <div className="row" style={{ justifyContent:'flex-end' }}>
+                    <button className="btn" onClick={()=>add(p)}>Agregar</button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
+
+          <style jsx>{`
+            .brand-layout{
+              display:grid;
+              grid-template-columns: minmax(0, 3fr) minmax(280px, 1fr);
+              gap: 20px;
+            }
+            @media (max-width: 980px){
+              .brand-layout{ grid-template-columns: 1fr; }
+              .cart { position: static !important; }
+            }
+            .brand-header{
+              display:flex; gap:16px; align-items:center;
+              background: rgba(17,18,26,.6); backdrop-filter: blur(8px);
+            }
+            .brand-header-info{ flex:1; min-width: 0; }
+            .cart{ position: sticky; top: 90px; align-self: start; }
+            .grid-products{
+              display:grid; gap:16px;
+              grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            }
+          `}</style>
         </>
       )}
     </main>
