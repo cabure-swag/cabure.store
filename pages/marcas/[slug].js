@@ -83,17 +83,24 @@ export default function BrandPage(){
       ) : (
         <>
           {/* HERO */}
-          <div style={{ position:'relative', height: 260, background:'#0e0f16' }}>
+          <div style={{ position:'relative', height: 280, background:'#0e0f16' }}>
             <img src={brand.cover_url || brand.logo_url || '/logo.png'}
                  alt={brand.name}
-                 style={{ width:'100%', height:'100%', objectFit:'cover', filter:'brightness(.85)' }}/>
-            <div className="container" style={{ position:'relative', height:'100%' }}>
-              <div style={{ position:'absolute', bottom:-40, left:24, display:'flex', gap:16, alignItems:'center' }}>
+                 style={{ width:'100%', height:'100%', objectFit:'cover', filter:'brightness(.82)' }}/>
+          </div>
+
+          {/* Caja superpuesta (logo + nombre + envíos) */}
+          <div className="container" style={{ marginTop: -64 }}>
+            <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap:20 }}>
+              <div className="card" style={{
+                display:'flex', gap:16, alignItems:'center',
+                background:'rgba(17,18,26,.6)', backdropFilter:'blur(8px)'
+              }}>
                 <img
                   src={brand.logo_url || '/logo.png'} alt={brand.name}
-                  style={{ width:108, height:108, borderRadius:54, objectFit:'cover', border:'2px solid var(--line)' }}
+                  style={{ width:100, height:100, borderRadius:50, objectFit:'cover', border:'2px solid var(--line)' }}
                 />
-                <div>
+                <div style={{ flex:1 }}>
                   <div className="h1" style={{ margin:0 }}>{brand.name}</div>
                   <div className="small" style={{ color:'var(--muted)' }}>{brand.description}</div>
                   <div className="small" style={{ color:'var(--muted)', marginTop:6 }}>
@@ -103,26 +110,49 @@ export default function BrandPage(){
                   </div>
                 </div>
               </div>
+
+              {/* Carrito sticky a la misma altura */}
+              <div className="card" style={{ position:'sticky', top:90, alignSelf:'start' }}>
+                <strong>Tu pedido</strong>
+                <div className="mt" style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {cart.length===0 ? <div className="small">Todavía no agregaste productos.</div> : cart.map(c=>(
+                    <div key={c.id} className="row" style={{ alignItems:'center' }}>
+                      <div>
+                        <div>{c.name}</div>
+                        <div className="small">${c.price} · stock {c.stock}</div>
+                      </div>
+                      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                        <button className="btn-ghost" onClick={()=>dec(c.id)}>-</button>
+                        <div className="badge">{c.qty}</div>
+                        <button className="btn-ghost" onClick={()=>inc(c.id)}>+</button>
+                        <button className="btn-ghost" onClick={()=>rm(c.id)}>Quitar</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt">
+                  <div className="row"><span>Subtotal</span><span>${subtotal}</span></div>
+                </div>
+                <div className="mt">
+                  <button className="btn" onClick={goCheckout} disabled={cart.length===0}>Ir al checkout</button>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Contenido principal: carrito a la misma altura (derecha) */}
-          <div className="container" style={{ paddingTop: 56 }}>
+          {/* Grilla de productos (grandes) */}
+          <div className="container" style={{ marginTop: 14 }}>
             <div className="grid" style={{ gridTemplateColumns:'2fr 1fr', gap:20 }}>
-              {/* Productos: 4 por fila desktop, 2 mobile */}
               <div className="grid-products">
                 {products.map(p => (
                   <div className="card" key={p.id} style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                    <div style={{ position:'relative', height:240, background:'#0e0f16', borderRadius:12, overflow:'hidden' }}>
-                      {/* Carrusel sin barra visible */}
+                    <div style={{ position:'relative', height:260, background:'#0e0f16', borderRadius:12, overflow:'hidden' }}>
                       <div style={{
                         display:'flex', width:'100%', height:'100%',
                         overflowX:'auto', scrollSnapType:'x mandatory',
                         scrollbarWidth:'none'
                       }}>
-                        <style jsx>{`
-                          div::-webkit-scrollbar { display: none; }
-                        `}</style>
+                        <style jsx>{` div::-webkit-scrollbar{ display:none; } `}</style>
                         {(p.images.length ? p.images : [{ url: p.image_url }]).slice(0,5).map((im,idx)=>(
                           <img key={idx} src={im?.url || p.image_url || '/logo.png'} alt={p.name}
                             style={{ width:'100%', height:'100%', objectFit:'cover', flex:'0 0 100%', scrollSnapAlign:'center' }}/>
@@ -152,34 +182,8 @@ export default function BrandPage(){
                 ))}
               </div>
 
-              {/* Carrito sticky a la altura del perfil */}
-              <div className="card" style={{ position:'sticky', top:90, alignSelf:'start' }}>
-                <strong>Tu pedido</strong>
-                <div className="mt" style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {cart.length===0 ? <div className="small">Todavía no agregaste productos.</div> : cart.map(c=>(
-                    <div key={c.id} className="row" style={{ alignItems:'center' }}>
-                      <div>
-                        <div>{c.name}</div>
-                        <div className="small">${c.price} · stock {c.stock}</div>
-                      </div>
-                      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                        <button className="btn-ghost" onClick={()=>dec(c.id)}>-</button>
-                        <div className="badge">{c.qty}</div>
-                        <button className="btn-ghost" onClick={()=>inc(c.id)}>+</button>
-                        <button className="btn-ghost" onClick={()=>rm(c.id)}>Quitar</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt">
-                  <div className="row"><span>Subtotal</span><span>${subtotal}</span></div>
-                </div>
-
-                <div className="mt">
-                  <button className="btn" onClick={goCheckout} disabled={cart.length===0}>Ir al checkout</button>
-                </div>
-              </div>
+              {/* columna derecha vacía para mantener alineación del sticky del carrito en desktop */}
+              <div className="hide-mobile" />
             </div>
           </div>
         </>
