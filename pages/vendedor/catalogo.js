@@ -1,6 +1,7 @@
 // pages/vendedor/catalogo.js
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { pathSafe } from '../../lib/pathSafe';
 
 export default function VendedorCatalogo(){
   const [ok, setOk] = useState(false);
@@ -49,7 +50,6 @@ export default function VendedorCatalogo(){
       imgs = im || [];
     }
 
-    // categorías asignadas por producto
     let pc = [];
     if(ids.length){
       const { data: rel } = await supabase
@@ -78,7 +78,7 @@ export default function VendedorCatalogo(){
     loadProducts(brand);
     loadCats(brand);
 
-    // suscripción realtime de categorías
+    // Realtime categorías (add/update/delete)
     if (catChannelRef.current) supabase.removeChannel(catChannelRef.current);
     const ch = supabase
       .channel(`cats_${brand}`)
@@ -94,16 +94,18 @@ export default function VendedorCatalogo(){
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     const name = f.get('name');
+    // optimista
+    setCats(cs => [...cs, { id: Date.now(), name }]);
     const { error } = await supabase.from('categories').insert({ brand_slug: brand, name });
-    if (error) return alert(error.message);
+    if (error) { alert(error.message); loadCats(brand); }
     e.currentTarget.reset();
-    // loadCats llega por realtime
   }
 
   async function deleteCategory(id){
-    if(!confirm('Eliminar categoría?')) return;
+    // optimista
+    setCats(cs => cs.filter(x => x.id !== id));
     const { error } = await supabase.from('categories').delete().eq('id', id);
-    if (error) return alert(error.message);
+    if (error) { alert(error.message); loadCats(brand); }
   }
 
   async function createProduct(e){
@@ -119,8 +121,8 @@ export default function VendedorCatalogo(){
 
     let image_url = null;
     if (mainFile && mainFile.size > 0) {
-      const path = `products/${brand}/${Date.now()}_${mainFile.name}`;
-      const up = await supabase.storage.from('media').upload(path, mainFile);
+      const path = `products/${brand}/${Date.now()}_${pathSafe(mainFile.name)}`;
+      const up = await supabase.storage.from('media').upload(path, mainFile, { contentType: mainFile.type });
       if (up.error) return alert(up.error.message);
       const { data: pub } = await supabase.storage.from('media').getPublicUrl(path);
       image_url = pub?.publicUrl || null;
@@ -132,11 +134,11 @@ export default function VendedorCatalogo(){
       .select('*').single();
     if (error) return alert(error.message);
 
-    // imágenes adicionales
+    // Imágenes adicionales
     let count = 0;
     for (const file of extraFiles) {
-      const path = `products/${brand}/${prod.id}/${Date.now()}_${file.name}`;
-      const up = await supabase.storage.from('media').upload(path, file);
+      const path = `products/${brand}/${prod.id}/${Date.now()}_${pathSafe(file.name)}`;
+      const up = await supabase.storage.from('media').upload(path, file, { contentType: file.type });
       if (up.error) { alert(up.error.message); break; }
       const { data: pub } = await supabase.storage.from('media').getPublicUrl(path);
       const url = pub?.publicUrl || null;
@@ -145,6 +147,7 @@ export default function VendedorCatalogo(){
       if (count >= 5) break;
     }
 
+    // Categorías
     if (category_ids.length){
       const rows = category_ids.map(id => ({ product_id: prod.id, category_id: id }));
       const { error: e2 } = await supabase.from('product_categories').insert(rows);
@@ -159,8 +162,8 @@ export default function VendedorCatalogo(){
     const p = products.find(x => x.id===pid);
     const existing = p?.images?.length || 0;
     if (existing >= 5) return alert('Máximo 5 fotos');
-    const path = `products/${brand}/${pid}/${Date.now()}_${file.name}`;
-    const up = await supabase.storage.from('media').upload(path, file);
+    const path = `products/${brand}/${pid}/${Date.now()}_${pathSafe(file.name)}`;
+    const up = await supabase.storage.from('media').upload(path, file, { contentType: file.type });
     if (up.error) return alert(up.error.message);
     const { data: pub } = await supabase.storage.from('media').getPublicUrl(path);
     const url = pub?.publicUrl || null;
@@ -187,7 +190,6 @@ export default function VendedorCatalogo(){
     const { error } = await supabase.from('products').update({ name, price, stock, description }).eq('id', pid);
     if (error) return alert(error.message);
 
-    // Sync categorías: borramos y reinsertamos (simple y seguro)
     await supabase.from('product_categories').delete().eq('product_id', pid);
     if (catIds.length){
       const rows = catIds.map(id => ({ product_id: pid, category_id: id }));
