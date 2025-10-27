@@ -1,38 +1,35 @@
 // ui/LogoTickerSeamless.jsx
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 /**
- * Banda de logos continua, tamaño fijo (56px), sin cortes, centrada.
- * - Dos tracks encadenados (tira infinita).
- * - Arranca centrada (desplaza media tira).
- * - Drag + inercia + recalcula en resize.
+ * Banda de logos continua, centrada y sin cortes:
+ * - Duplica logos hasta cubrir >= 2x el ancho del contenedor (para que nunca “se acabe”).
+ * - Centrado inicial real: -(W/2) + wrapWidth/2
+ * - Drag + inercia, 2 tracks encadenados.
  */
 export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
-  const base = (brands && brands.length) ? brands : new Array(8).fill({ slug:null, logo_url:null });
+  const baseRaw = (brands && brands.length) ? brands : new Array(8).fill({ slug:null, logo_url:null });
 
   const wrapRef = useRef(null);
   const t1Ref  = useRef(null);
   const t2Ref  = useRef(null);
-  const S = useRef({ x: 0, vx: -0.6, drag: false, lastX: 0, w: 0, raf: 0, measured:false });
 
-  const Track = ({ innerRef }) => (
-    <div ref={innerRef} className="cab-track">
-      {base.map((b, i) => (
-        <a
-          key={i}
-          className="cab-slot"
-          href={b?.slug ? `/marcas/${b.slug}` : '#'}
-          onClick={(e) => { if (!b?.slug) e.preventDefault(); }}
-          title={b?.slug || 'marca'}
-        >
-          {b?.logo_url
-            ? <img className="cab-img" src={b.logo_url} alt={b.slug || 'marca'} />
-            : <div className="cab-empty" />}
-        </a>
-      ))}
-    </div>
-  );
+  // Estado interno (posiciones / medidas)
+  const S = useRef({ x: 0, vx: -0.6, drag: false, lastX: 0, w: 1, raf: 0 });
+  const [wrapW, setWrapW] = useState(0);
 
+  // Repetimos logos para que una tira sea bien larga (≥ 2x contenedor)
+  const items = useMemo(() => {
+    // Si aún no sabemos el ancho del contenedor, devolvemos al menos 24 ítems para evitar que quede corto
+    const minLen = 24;
+    const base = baseRaw.length ? baseRaw : new Array(8).fill({ slug:null, logo_url:null });
+    const out = [];
+    const need = Math.max(minLen, Math.ceil((wrapW || 800) / 56) * 8); // aprox: cada slot ~ 56+(margen) → usamos factor 8 para estar holgados
+    for (let i = 0; i < need; i++) out.push(base[i % base.length]);
+    return out;
+  }, [baseRaw, wrapW]);
+
+  // Centrado + medición
   const positionTracks = () => {
     const t1 = t1Ref.current;
     const t2 = t2Ref.current;
@@ -44,25 +41,32 @@ export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
 
   const measure = () => {
     const t1 = t1Ref.current;
-    if (!t1) return;
-    const W = t1.scrollWidth;
-    S.current.w = W > 0 ? W : 1;
+    const wrap = wrapRef.current;
+    if (!t1 || !wrap) return;
 
-    // Arrancamos “centrados”: desplazamos media tira a la izquierda
-    if (!S.current.measured) {
-      S.current.x = -Math.floor(S.current.w / 2);
-      S.current.measured = true;
-    }
+    const wrapWidth = wrap.clientWidth || 0;
+    setWrapW(wrapWidth);
+
+    // ancho real de una tira
+    const W = t1.scrollWidth;
+    S.current.w = Math.max(1, W);
+
+    // centrado real: mover para que el centro de la tira coincida con el centro del contenedor
+    const targetX = -Math.floor(S.current.w / 2) + Math.floor(wrapWidth / 2);
+    S.current.x = targetX;
+
     positionTracks();
   };
 
-  useLayoutEffect(() => { S.current.measured = false; measure(); }, [brands?.length]);
+  useLayoutEffect(() => { measure(); }, [items.length]);
+
   useEffect(() => {
-    const onResize = () => { S.current.measured = false; measure(); };
+    const onResize = () => measure();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // Animación (seamless + inercia)
   useEffect(() => {
     const step = () => {
       const t1 = t1Ref.current, t2 = t2Ref.current;
@@ -85,19 +89,25 @@ export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
     return () => cancelAnimationFrame(S.current.raf);
   }, [speed]);
 
+  // Drag + inercia
   useEffect(() => {
     const el = wrapRef.current;
-    const state = S.current;
     if (!el) return;
 
-    const down = (e) => { state.drag = true; state.lastX = 'touches' in e ? e.touches[0].clientX : e.clientX; state.vx = 0; };
-    const move = (e) => {
-      if (!state.drag) return;
-      const x = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const dx = x - state.lastX;
-      state.x += dx; state.vx = dx; state.lastX = x;
+    const down = (e) => {
+      S.current.drag = true;
+      S.current.lastX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      S.current.vx = 0;
     };
-    const up = () => { state.drag = false; };
+    const move = (e) => {
+      if (!S.current.drag) return;
+      const x = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const dx = x - S.current.lastX;
+      S.current.x += dx;
+      S.current.vx = dx;
+      S.current.lastX = x;
+    };
+    const up = () => { S.current.drag = false; };
 
     el.addEventListener('mousedown', down);
     el.addEventListener('mousemove', move);
@@ -118,8 +128,32 @@ export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
 
   return (
     <div ref={wrapRef} className="cab-wrap">
-      <Track innerRef={t1Ref} />
-      <Track innerRef={t2Ref} />
+      <div ref={t1Ref} className="cab-track">
+        {items.map((b, i) => (
+          <a
+            key={`t1-${i}`}
+            className="cab-slot"
+            href={b?.slug ? `/marcas/${b.slug}` : '#'}
+            onClick={(e) => { if (!b?.slug) e.preventDefault(); }}
+            title={b?.slug || 'marca'}
+          >
+            {b?.logo_url ? <img className="cab-img" src={b.logo_url} alt={b.slug || 'marca'} /> : <div className="cab-empty" />}
+          </a>
+        ))}
+      </div>
+      <div ref={t2Ref} className="cab-track">
+        {items.map((b, i) => (
+          <a
+            key={`t2-${i}`}
+            className="cab-slot"
+            href={b?.slug ? `/marcas/${b.slug}` : '#'}
+            onClick={(e) => { if (!b?.slug) e.preventDefault(); }}
+            title={b?.slug || 'marca'}
+          >
+            {b?.logo_url ? <img className="cab-img" src={b.logo_url} alt={b.slug || 'marca'} /> : <div className="cab-empty" />}
+          </a>
+        ))}
+      </div>
 
       <style jsx global>{`
         .cab-wrap {
@@ -152,6 +186,7 @@ export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
           display: inline-flex; align-items: center; justify-content: center;
         }
 
+        /* Evitar que estilos globales agranden las imágenes */
         .cab-img {
           display: block;
           width: 56px !important;
