@@ -1,20 +1,15 @@
 // ui/LogoTickerDraggable.jsx
-// Banda 100% continua, intercalado, arrastre con mouse/touch + inercia al soltar.
-// Cada logo linkea a /marcas/[slug].
-
 import { useEffect, useRef } from 'react';
 
 export default function LogoTickerDraggable({ brands = [], speed = 20 }) {
-  // Intercalado simple (A,B,C,A,B,C...)
   const ordered = [...brands];
-  // Triplicamos para que sea realmente continuo
   const items = [...ordered, ...ordered, ...ordered];
 
   const wrapRef = useRef(null);
   const trackRef = useRef(null);
   const state = useRef({
     x: 0,
-    vx: -0.4,          // velocidad base (px/frame). Negativa = hacia la izquierda
+    vx: -0.4,
     dragging: false,
     lastX: 0,
     raf: 0,
@@ -25,36 +20,34 @@ export default function LogoTickerDraggable({ brands = [], speed = 20 }) {
     const track = trackRef.current;
     if (!wrap || !track) return;
 
-    const SLOT_W = 112; // ~64px logo + márgenes
+    const SLOT_W = 112;
     const totalW = items.length * SLOT_W;
 
-    let lastTs = performance.now();
+    // ✨ arranca centrado en el bloque del medio (evita “corrimiento” a la izquierda)
+    state.current.x = -Math.floor(totalW / 3);
 
+    let lastTs = performance.now();
     const tick = (ts) => {
-      const dt = Math.max(1, ts - lastTs); // ms
+      const dt = Math.max(1, ts - lastTs);
       lastTs = ts;
 
       const st = state.current;
       if (!st.dragging) {
-        // inercia + velocidad base
-        st.x += st.vx * (dt / 16.7);         // normalizar a ~60fps
-        st.vx *= 0.995;                       // leve fricción
-        if (Math.abs(st.vx) < 0.02) st.vx = -speed * 0.02; // vuelve a velocidad base lenta
+        st.x += st.vx * (dt / 16.7);
+        st.vx *= 0.995;
+        if (Math.abs(st.vx) < 0.02) st.vx = -speed * 0.02;
       }
 
-      // wrap infinito
       if (st.x <= -totalW) st.x += totalW;
       if (st.x >= 0) st.x -= totalW;
 
       track.style.transform = `translate3d(${st.x}px,0,0)`;
       st.raf = requestAnimationFrame(tick);
     };
-
     state.current.raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(state.current.raf);
   }, [items, speed]);
 
-  // Drag
   useEffect(() => {
     const wrap = wrapRef.current;
     const st = state.current;
@@ -71,7 +64,7 @@ export default function LogoTickerDraggable({ brands = [], speed = 20 }) {
       const x = 'touches' in e ? e.touches[0].clientX : e.clientX;
       const dx = x - st.lastX;
       st.x += dx;
-      st.vx = dx; // velocidad instantánea para inercia
+      st.vx = dx;
       st.lastX = x;
     };
     const onUp = () => { st.dragging = false; };
@@ -79,7 +72,6 @@ export default function LogoTickerDraggable({ brands = [], speed = 20 }) {
     wrap.addEventListener('mousedown', onDown);
     wrap.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-
     wrap.addEventListener('touchstart', onDown, { passive: true });
     wrap.addEventListener('touchmove', onMove, { passive: true });
     window.addEventListener('touchend', onUp);
@@ -98,14 +90,9 @@ export default function LogoTickerDraggable({ brands = [], speed = 20 }) {
     <div ref={wrapRef} className="tickerX">
       <div ref={trackRef} className="trackX">
         {items.map((b, i) => (
-          <a
-            key={i}
-            className="slotX"
-            href={b?.slug ? `/marcas/${b.slug}` : '#'}
-            onClick={(e) => { if (!b?.slug) e.preventDefault(); }}
-            title={b?.slug || ''}
-            style={{ pointerEvents: b?.slug ? 'auto' : 'none' }}
-          >
+          <a key={i} className="slotX"
+             href={b?.slug ? `/marcas/${b.slug}` : '#'}
+             onClick={(e) => { if (!b?.slug) e.preventDefault(); }}>
             {b?.logo_url ? <img src={b.logo_url} alt={b.slug} /> : null}
           </a>
         ))}
@@ -120,7 +107,7 @@ export default function LogoTickerDraggable({ brands = [], speed = 20 }) {
           border:1px solid var(--line); margin:14px 24px; flex:0 0 auto;
         }
         .slotX img{
-          width:64px; height:64px; object-fit:cover; border-radius:999px; border:1px solid var(--line);
+          width:64px; height:64px; object-fit:cover; border-radius:999px; border:1px solid var(--line)
         }
         .tickerX:active { cursor:grabbing; }
       `}</style>
