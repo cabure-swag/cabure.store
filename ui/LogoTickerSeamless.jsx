@@ -2,21 +2,19 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 
 /**
- * Banda de logos continua, tamaño fijo (56px), sin cortes.
- * - Dos tracks que se encadenan (tira infinita).
- * - Drag + inercia.
- * - Recalcula en resize.
+ * Banda de logos continua, tamaño fijo (56px), sin cortes, centrada.
+ * - Dos tracks encadenados (tira infinita).
+ * - Arranca centrada (desplaza media tira).
+ * - Drag + inercia + recalcula en resize.
  */
 export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
-  // Si no hay marcas, mostramos placeholders (8 círculos vacíos)
   const base = (brands && brands.length) ? brands : new Array(8).fill({ slug:null, logo_url:null });
 
   const wrapRef = useRef(null);
   const t1Ref  = useRef(null);
   const t2Ref  = useRef(null);
-  const S = useRef({ x: 0, vx: -0.6, drag: false, lastX: 0, w: 0, raf: 0 });
+  const S = useRef({ x: 0, vx: -0.6, drag: false, lastX: 0, w: 0, raf: 0, measured:false });
 
-  // Render de una tira
   const Track = ({ innerRef }) => (
     <div ref={innerRef} className="cab-track">
       {base.map((b, i) => (
@@ -35,30 +33,36 @@ export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
     </div>
   );
 
-  // Medir ancho de una tira y posicionar
-  const measure = () => {
+  const positionTracks = () => {
     const t1 = t1Ref.current;
     const t2 = t2Ref.current;
     if (!t1 || !t2) return;
+    const W = S.current.w || t1.scrollWidth || 1;
+    t1.style.transform = `translate3d(${S.current.x}px,0,0)`;
+    t2.style.transform = `translate3d(${S.current.x + W}px,0,0)`;
+  };
 
-    // Fuerza reflow para ancho real
+  const measure = () => {
+    const t1 = t1Ref.current;
+    if (!t1) return;
     const W = t1.scrollWidth;
     S.current.w = W > 0 ? W : 1;
 
-    // Colocar: track1 en X actual; track2 pegado a su derecha
-    t1.style.transform = `translate3d(${S.current.x}px,0,0)`;
-    t2.style.transform = `translate3d(${S.current.x + S.current.w}px,0,0)`;
+    // Arrancamos “centrados”: desplazamos media tira a la izquierda
+    if (!S.current.measured) {
+      S.current.x = -Math.floor(S.current.w / 2);
+      S.current.measured = true;
+    }
+    positionTracks();
   };
 
-  useLayoutEffect(() => { measure(); }, [brands?.length]);
-
+  useLayoutEffect(() => { S.current.measured = false; measure(); }, [brands?.length]);
   useEffect(() => {
-    const onResize = () => measure();
+    const onResize = () => { S.current.measured = false; measure(); };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // Animación continua + inercia
   useEffect(() => {
     const step = () => {
       const t1 = t1Ref.current, t2 = t2Ref.current;
@@ -66,26 +70,21 @@ export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
 
       if (!S.current.drag) {
         S.current.x += S.current.vx;
-        S.current.vx *= 0.995; // fricción suave
-        if (Math.abs(S.current.vx) < 0.02) S.current.vx = -speed * 0.02; // velocidad base a la izquierda
+        S.current.vx *= 0.995;
+        if (Math.abs(S.current.vx) < 0.02) S.current.vx = -speed * 0.02;
       }
 
       const W = S.current.w || t1.scrollWidth || 1;
-
-      // “Dar la vuelta” sin cortes
       if (S.current.x <= -W) S.current.x += W;
       if (S.current.x > 0)   S.current.x -= W;
 
-      t1.style.transform = `translate3d(${S.current.x}px,0,0)`;
-      t2.style.transform = `translate3d(${S.current.x + W}px,0,0)`;
-
+      positionTracks();
       S.current.raf = requestAnimationFrame(step);
     };
     S.current.raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(S.current.raf);
   }, [speed]);
 
-  // Drag + inercia
   useEffect(() => {
     const el = wrapRef.current;
     const state = S.current;
@@ -122,7 +121,6 @@ export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
       <Track innerRef={t1Ref} />
       <Track innerRef={t2Ref} />
 
-      {/* CSS global para neutralizar estilos que agrandan imágenes */}
       <style jsx global>{`
         .cab-wrap {
           height: 88px;
@@ -154,7 +152,6 @@ export default function LogoTickerSeamless({ brands = [], speed = 18 }) {
           display: inline-flex; align-items: center; justify-content: center;
         }
 
-        /* CLAVE: impedir que estilos globales deformen los logos */
         .cab-img {
           display: block;
           width: 56px !important;
