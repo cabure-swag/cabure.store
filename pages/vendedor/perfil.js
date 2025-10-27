@@ -16,12 +16,22 @@ export default function VendedorPerfil(){
       if(!u) return;
       setMe({ id: u.id, email: u.email });
 
-      const { data: vb } = await supabase
-        .from('vendor_brands')
-        .select('brand_slug, brands!inner(name, description, logo_url, cover_url, ship_domicilio, ship_sucursal, ship_free_from)')
-        .eq('user_id', u.id);
+      // Si es admin, puede ver todas las marcas; si es vendor, solo las asignadas
+      const { data: admins } = await supabase.from('admin_emails').select('email').eq('email', u.email);
+      const isAdmin = (admins||[]).length>0;
 
-      const list = (vb||[]).map(x => ({ slug: x.brand_slug, ...x.brands }));
+      let list = [];
+      if (isAdmin) {
+        const { data } = await supabase.from('brands').select('slug,name,description,logo_url,cover_url,ship_domicilio,ship_sucursal,ship_free_from').order('name');
+        list = data || [];
+      } else {
+        const { data } = await supabase
+          .from('vendor_brands')
+          .select('brand_slug, brands!inner(name, description, logo_url, cover_url, ship_domicilio, ship_sucursal, ship_free_from)')
+          .eq('user_id', u.id);
+        list = (data||[]).map(x => ({ slug: x.brand_slug, ...x.brands }));
+      }
+
       setBrands(list);
       if (list.length) setBrandSlug(list[0].slug);
     })();
@@ -39,7 +49,8 @@ export default function VendedorPerfil(){
     const logo = f.get('logo');
     const cover = f.get('cover');
 
-    let logo_url = brands.find(b => b.slug===brandSlug)?.logo_url || null;
+    const current = brands.find(b => b.slug===brandSlug) || {};
+    let logo_url = current.logo_url || null;
     if (logo && logo.size>0) {
       const path = `brands/${brandSlug}/${Date.now()}_${pathSafe(logo.name)}`;
       const up = await supabase.storage.from('media').upload(path, logo, { contentType: logo.type });
@@ -48,7 +59,7 @@ export default function VendedorPerfil(){
       logo_url = pub?.publicUrl || null;
     }
 
-    let cover_url = brands.find(b => b.slug===brandSlug)?.cover_url || null;
+    let cover_url = current.cover_url || null;
     if (cover && cover.size>0) {
       const path = `brands/${brandSlug}/cover_${Date.now()}_${pathSafe(cover.name)}`;
       const up = await supabase.storage.from('media').upload(path, cover, { contentType: cover.type });
@@ -76,7 +87,7 @@ export default function VendedorPerfil(){
 
   return (
     <main className="container">
-      <h1 className="h1">Vendedor — Marca</h1>
+      <h1 className="h1">Vendedor — Perfil de marca</h1>
 
       <div className="card">
         <label>Elegí marca</label>
@@ -84,6 +95,9 @@ export default function VendedorPerfil(){
           <option value="">Seleccionar</option>
           {brands.map(b => <option key={b.slug} value={b.slug}>{b.name}</option>)}
         </select>
+        {!brands.length && <p className="small" style={{ marginTop:8 }}>
+          No tenés marcas asignadas. Pedile al Admin que te asigne una en <code>vendor_brands</code>.
+        </p>}
       </div>
 
       {brandSlug && (
