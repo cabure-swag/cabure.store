@@ -1,5 +1,5 @@
 // pages/marcas/[slug].js
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
 
@@ -76,6 +76,7 @@ export default function BrandPage(){
 
   const [selectedCats, setSelectedCats] = useState([]);
   const [cart, setCart] = useState([]);
+  const [carouselIndex, setCarouselIndex] = useState({}); // {productId: idx}
 
   const filtered = useMemo(() => {
     if (!selectedCats.length) return products;
@@ -100,6 +101,14 @@ export default function BrandPage(){
   function rm(id){ setCart(cs => cs.filter(c => c.id !== id)); }
   const subtotal = useMemo(() => cart.reduce((s,c)=>s+c.price*c.qty,0), [cart]);
   function goCheckout(){ localStorage.setItem(`cart:${slug}`, JSON.stringify(cart)); router.push(`/checkout/${slug}`); }
+
+  function imgsOf(p){
+    const arr = (p.images.length ? p.images : [{ url: p.image_url }]).slice(0,5);
+    return arr;
+  }
+  function prevImg(pid){ setCarouselIndex(m => ({...m, [pid]: Math.max(0, (m[pid]||0)-1)})); }
+  function nextImg(pid, len){ setCarouselIndex(m => ({...m, [pid]: Math.min(len-1, (m[pid]||0)+1)})); }
+  function setIdx(pid, idx){ setCarouselIndex(m => ({...m, [pid]: idx})); }
 
   return (
     <main>
@@ -146,7 +155,7 @@ export default function BrandPage(){
                         <div>{c.name}</div>
                         <div className="small">${c.price} · stock {c.stock}</div>
                       </div>
-                      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                      <div style={{ display:'flex', gap:6, alignItems:'center', marginLeft:'auto' }}>
                         <button className="btn-ghost" onClick={()=>dec(c.id)}>-</button>
                         <div className="badge">{c.qty}</div>
                         <button className="btn-ghost" onClick={()=>inc(c.id)}>+</button>
@@ -161,7 +170,7 @@ export default function BrandPage(){
             </div>
           </div>
 
-          {/* FILTROS integrados al catálogo (chips) */}
+          {/* Filtros (chips) */}
           <div className="container" style={{ marginTop: 12 }}>
             {cats.length > 0 && (
               <div className="filters">
@@ -184,35 +193,42 @@ export default function BrandPage(){
           {/* productos */}
           <div className="container" style={{ marginTop: 10 }}>
             <div className="grid-products">
-              {filtered.map(p => (
-                <div className="card" key={p.id} style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  <div className="carousel" style={{
-                    position:'relative', height:340, background:'#0e0f16',
-                    borderRadius:12, overflow:'hidden',
-                    display:'flex', width:'100%',
-                    overflowX:'auto', scrollSnapType:'x mandatory'
-                  }}>
-                    {(p.images.length ? p.images : [{ url: p.image_url }]).slice(0,5).map((im,idx)=>(
-                      <img key={idx} src={im?.url || p.image_url || '/logo.png'} alt={p.name}
-                        style={{ width:'100%', height:'100%', objectFit:'cover', flex:'0 0 100%', scrollSnapAlign:'center' }}/>
-                    ))}
-                  </div>
+              {filtered.map(p => {
+                const arr = imgsOf(p);
+                const idx = carouselIndex[p.id] || 0;
+                return (
+                  <div className="card" key={p.id} style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    <div className="carousel2">
+                      <img src={arr[idx]?.url || p.image_url || '/logo.png'} alt={p.name}/>
+                      {arr.length>1 && (
+                        <>
+                          <button className="nav prev" onClick={()=>prevImg(p.id)} aria-label="Anterior">‹</button>
+                          <button className="nav next" onClick={()=>nextImg(p.id, arr.length)} aria-label="Siguiente">›</button>
+                          <div className="dots">
+                            {arr.map((_,i)=>(
+                              <button key={i} className={`dot ${i===idx?'on':''}`} onClick={()=>setIdx(p.id, i)} />
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
 
-                  <div>
-                    <strong>{p.name}</strong>
-                    {p.description && <div className="small" style={{ marginTop:6 }}>{p.description}</div>}
-                  </div>
+                    <div>
+                      <strong>{p.name}</strong>
+                      {p.description && <div className="small" style={{ marginTop:6 }}>{p.description}</div>}
+                    </div>
 
-                  <div className="row">
-                    <div className="small">Stock: {p.stock}</div>
-                    <div style={{ fontWeight:700 }}>${p.price}</div>
-                  </div>
+                    <div className="row">
+                      <div className="small">Stock: {p.stock}</div>
+                      <div style={{ fontWeight:700 }}>${p.price}</div>
+                    </div>
 
-                  <div className="row" style={{ justifyContent:'flex-end' }}>
-                    <button className="btn" onClick={()=>add(p)}>Agregar</button>
+                    <div className="row" style={{ justifyContent:'flex-end' }}>
+                      <button className="btn" onClick={()=>add(p)}>Agregar</button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -233,7 +249,6 @@ export default function BrandPage(){
             .brand-header-info{ flex:1; min-width: 0; }
             .cart{ position: sticky; top: 90px; align-self: start; }
 
-            /* Filtros integrados (chips) */
             .filters{ display:flex; align-items:center; }
             .chips{ display:flex; flex-wrap:wrap; gap:8px; }
             .chip{
@@ -249,8 +264,28 @@ export default function BrandPage(){
               display:grid; gap:16px;
               grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             }
-            .carousel { scrollbar-width: none; }
-            .carousel::-webkit-scrollbar { display: none; }
+
+            /* Carrusel controlado (una imagen a la vez, flechas + dots) */
+            .carousel2{
+              position:relative; height:340px; border-radius:12px; overflow:hidden; background:#0e0f16;
+              display:flex; align-items:center; justify-content:center;
+            }
+            .carousel2 img{ width:100%; height:100%; object-fit:cover; display:block; }
+            .nav{
+              position:absolute; top:50%; transform:translateY(-50%);
+              width:36px; height:36px; border-radius:10px; border:1px solid var(--line);
+              background:rgba(15,17,24,.75); backdrop-filter:blur(6px);
+              color:var(--text); cursor:pointer;
+            }
+            .nav.prev{ left:10px; }
+            .nav.next{ right:10px; }
+            .dots{
+              position:absolute; bottom:10px; left:0; right:0; display:flex; gap:6px; justify-content:center;
+            }
+            .dot{
+              width:8px; height:8px; border-radius:999px; border:1px solid var(--line); background:#0f1118; cursor:pointer;
+            }
+            .dot.on{ background:#7c3aed; border-color:#7c3aed; }
           `}</style>
         </>
       )}
