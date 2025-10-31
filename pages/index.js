@@ -1,141 +1,116 @@
 // pages/index.js
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import Head from 'next/head';
 import { supabase } from '../lib/supabaseClient';
-import LogoTickerSeamless from '../ui/LogoTickerSeamless';
+import RotatingCover from '../components/RotatingCover';
 
-export default function HomePage() {
-  const [brands, setBrands] = useState([]);
-
+function useBrands(){
+  const [rows, setRows] = useState([]);
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
+      // Traemos lo necesario para rotar portadas
+      const { data: brands } = await supabase
         .from('brands')
-        .select('slug,name,description,instagram,logo_url,cover_url')
+        .select('slug,name,logo_url,cover_url,cover_urls,instagram')
         .order('name', { ascending: true });
-      setBrands(data || []);
+
+      if (!brands || !brands.length) { setRows([]); return; }
+
+      // Intentar brand_covers por cada slug (opcional)
+      const slugs = brands.map(b => b.slug);
+      const coversBySlug = {};
+      if (slugs.length){
+        const { data: bc } = await supabase
+          .from('brand_covers')
+          .select('brand_slug,url,position')
+          .in('brand_slug', slugs)
+          .order('position', { ascending: true });
+        if (bc && bc.length){
+          for (const r of bc) {
+            coversBySlug[r.brand_slug] = coversBySlug[r.brand_slug] || [];
+            if (r.url) coversBySlug[r.brand_slug].push(r.url);
+          }
+        }
+      }
+
+      const enriched = brands.map(b => {
+        const list =
+          (coversBySlug[b.slug] && coversBySlug[b.slug].length && coversBySlug[b.slug]) ||
+          (Array.isArray(b.cover_urls) && b.cover_urls.length && b.cover_urls) ||
+          [b.cover_url || b.logo_url || '/logo.png'];
+        return { ...b, coverList: list.filter(Boolean) };
+      });
+
+      setRows(enriched);
     })();
   }, []);
+  return rows;
+}
+
+export default function Home(){
+  const brands = useBrands();
 
   return (
-    <>
-      <Head>
-        <title>CABURE.STORE</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-      </Head>
+    <main>
+      <div className="container">
+        {/* Banda/hero opcional arriba… */}
 
-      {/* Banda de logos */}
-      <section>
-        <LogoTickerSeamless brands={brands} pxPerSec={40} />
-      </section>
-
-      {/* Grid de marcas */}
-      <main className="container" style={{ paddingTop: 18 }}>
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18 }}>
-          {brands.map((b) => (
-            <Link key={b.slug} href={`/marcas/${b.slug}`} className="brandCard" style={{ textDecoration: 'none' }}>
-              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <div className="cover" style={{ position: 'relative', height: 220, background: '#0e0f16' }}>
-                  <img
-                    src={b.cover_url || b.logo_url || '/logo.png'}
-                    alt={b.name}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(.85)' }}
-                  />
-
-                  {/* Overlay inferior con logo + nombre + IG */}
-                  <div
-                    className="overlay"
-                    style={{
-                      position: 'absolute',
-                      left: 12,
-                      right: 12,
-                      bottom: 12,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '10px 12px',
-                      background: 'rgba(17,18,26,.58)',
-                      border: '1px solid var(--line)',
-                      borderRadius: 12,
-                      backdropFilter: 'blur(6px)',
-                    }}
-                  >
-                    <img
-                      src={b.logo_url || '/logo.png'}
-                      alt={b.name}
-                      style={{
-                        width: 56,
-                        height: 56,
-                        borderRadius: 28,
-                        objectFit: 'cover',
-                        border: '1px solid var(--line)',
-                      }}
-                    />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="h2" style={{ margin: 0, fontSize: 18 }}>{b.name}</div>
-                      {b.description && (
-                        <div
-                          className="small"
-                          style={{
-                            color: 'var(--muted)',
-                            marginTop: 2,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                          title={b.description}
-                        >
-                          {b.description}
-                        </div>
-                      )}
-                    </div>
-
-                    {b.instagram && (
-                      <a
-                        className="igBtn"
-                        onClick={(e) => e.stopPropagation()}
-                        href={
-                          b.instagram.startsWith('http')
-                            ? b.instagram
-                            : `https://instagram.com/${b.instagram.replace('@', '')}`
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-label="Instagram"
-                        title="Instagram"
-                      >
-                        {/* Instagram “oficial” (simpleicons-like) */}
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" width="18" height="18" aria-hidden="true">
-                          <path fill="currentColor"
-                            d="M224,202.66A53.34,53.34,0,1,0,277.34,256,53.38,53.38,0,0,0,224,202.66Zm124.71-41a54,54,0,0,0-30.46-30.46C298.07,120,224,120,224,120s-74.07,0-94.25,11.2a54,54,0,0,0-30.46,30.46C88,161.93,88,236,88,236s0,74.07,11.29,94.25a54,54,0,0,0,30.46,30.46C150,372,224,372,224,372s74.07,0,94.25-11.29a54,54,0,0,0,30.46-30.46C360,310.07,360,236,360,236S360,161.93,348.71,161.71ZM224,338a82,82,0,1,1,82-82A82,82,0,0,1,224,338Zm85-148.71a19.2,19.2,0,1,1,19.2-19.2A19.19,19.19,0,0,1,309,189.29Z"/>
-                        </svg>
-                      </a>
-                    )}
-                  </div>
+        {/* Grilla de marcas con portada rotatoria */}
+        <div className="grid-brands">
+          {brands.map(b => (
+            <Link key={b.slug} href={`/marcas/${b.slug}`} className="brand-card card">
+              <div className="cover">
+                <RotatingCover
+                  images={b.coverList}
+                  alt={b.name}
+                  intervalMs={10000}
+                  objectFit="cover"
+                />
+                <div className="overlay">
+                  <img src={b.logo_url || '/logo.png'} alt={b.name} className="logo"/>
+                  <div className="name">{b.name}</div>
+                  {b.instagram && (
+                    <a
+                      href={b.instagram.startsWith('http') ? b.instagram : `https://instagram.com/${b.instagram.replace('@','')}`}
+                      target="_blank" rel="noreferrer" aria-label="Instagram" className="ig-mini"
+                      onClick={(e)=>e.stopPropagation()}
+                    >
+                      {/* Mini ícono IG */}
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                        fill="currentColor" width="18" height="18" aria-hidden="true">
+                        <path d="M7.75 2h8.5A5.75 5.75 0 0 1 22 7.75v8.5A5.75 5.75 0 0 1 16.25 22h-8.5A5.75 5.75 0 0 1 2 16.25v-8.5A5.75 5.75 0 0 1 7.75 2zm0 1.5A4.25 4.25 0 0 0 3.5 7.75v8.5A4.25 4.25 0 0 0 7.75 20.5h8.5A4.25 4.25 0 0 0 20.5 16.25v-8.5A4.25 4.25 0 0 0 16.25 3.5h-8.5zM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 1.5A3.5 3.5 0 1 0 12 15a3.5 3.5 0 0 0 0-7zm4.75-.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z"/>
+                      </svg>
+                    </a>
+                  )}
                 </div>
               </div>
             </Link>
           ))}
         </div>
-      </main>
+      </div>
 
       <style jsx>{`
-        :global(.igBtn) {
-          color: var(--text);
-          display:inline-flex; align-items:center; justify-content:center;
-          width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line);
-          transition: transform 140ms ease, box-shadow 140ms ease;
-          text-decoration:none;
+        .grid-brands{
+          display:grid; gap:16px;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
         }
-        :global(.igBtn:hover) {
-          transform: translateY(-1px);
-          box-shadow: 0 6px 18px rgba(124, 58, 237, 0.25);
+        .brand-card{ padding:0; overflow:hidden; }
+        .cover{ position:relative; height:200px; background:#0e0f16; border-radius:12px; overflow:hidden; }
+        .overlay{
+          position:absolute; left:12px; right:12px; bottom:12px;
+          display:flex; align-items:center; gap:10px;
+          background: rgba(17,18,26,.55); backdrop-filter: blur(6px);
+          border:1px solid var(--line); border-radius:12px; padding:8px 10px;
         }
-        :global(.brandCard .card:hover .overlay) {
-          box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.35);
+        .logo{ width:42px; height:42px; border-radius:999px; object-fit:cover; border:1px solid var(--line); }
+        .name{ font-weight:700; }
+        .ig-mini{
+          margin-left:auto; width:34px; height:34px; border-radius:10px; display:inline-flex; align-items:center; justify-content:center;
+          border:1px solid var(--line); background: rgba(17,18,26,.6); color:#fff;
+          transition: transform .15s ease, background .15s ease; text-decoration:none;
         }
+        .ig-mini:hover{ background: rgba(255,255,255,.1); transform: translateY(-1px); }
       `}</style>
-    </>
+    </main>
   );
 }
