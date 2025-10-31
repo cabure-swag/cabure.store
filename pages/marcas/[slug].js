@@ -1,7 +1,8 @@
 // pages/marcas/[slug].js
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
+import LightboxZoom from '../../components/LightboxZoom';
 
 function useBrand(slug){
   const [brand, setBrand] = useState(null);
@@ -78,6 +79,12 @@ export default function BrandPage(){
   const [cart, setCart] = useState([]);
   const [carouselIndex, setCarouselIndex] = useState({}); // {productId: idx}
 
+  // Lightbox
+  const [lbOpen, setLbOpen]   = useState(false);
+  const [lbImages, setLbImages] = useState([]); // [{url}...]
+  const [lbIndex, setLbIndex] = useState(0);
+  const [lbRect, setLbRect]   = useState(null); // DOMRect de la miniatura clickeada
+
   const filtered = useMemo(() => {
     if (!selectedCats.length) return products;
     const set = new Set(selectedCats);
@@ -109,6 +116,18 @@ export default function BrandPage(){
   function prevImg(pid){ setCarouselIndex(m => ({...m, [pid]: Math.max(0, (m[pid]||0)-1)})); }
   function nextImg(pid, len){ setCarouselIndex(m => ({...m, [pid]: Math.min(len-1, (m[pid]||0)+1)})); }
   function setIdx(pid, idx){ setCarouselIndex(m => ({...m, [pid]: idx})); }
+
+  // Abrir lightbox desde la miniatura visible del carrusel
+  function openLightboxFromThumb(e, p){
+    // El contenedor tiene el <img> visible
+    const imgEl = e.currentTarget.querySelector('img');
+    const rect = imgEl?.getBoundingClientRect?.();
+    const arr = imgsOf(p).map(x => ({ url: x.url || x }));
+    setLbImages(arr);
+    setLbIndex(carouselIndex[p.id] || 0);
+    setLbRect(rect);
+    setLbOpen(true);
+  }
 
   return (
     <main>
@@ -199,7 +218,15 @@ export default function BrandPage(){
                 return (
                   <div className="card" key={p.id} style={{ display:'flex', flexDirection:'column', gap:10 }}>
                     <div className="carousel2">
-                      <img src={arr[idx]?.url || p.image_url || '/logo.png'} alt={p.name}/>
+                      {/* botón que envuelve la imagen visible → abre lightbox con animación */}
+                      <button
+                        className="thumbBtn"
+                        onClick={(e)=>openLightboxFromThumb(e, p)}
+                        aria-label="Ver imagen en grande"
+                      >
+                        <img src={arr[idx]?.url || p.image_url || '/logo.png'} alt={p.name}/>
+                      </button>
+
                       {arr.length>1 && (
                         <>
                           <button className="nav prev" onClick={()=>prevImg(p.id)} aria-label="Anterior">‹</button>
@@ -231,6 +258,18 @@ export default function BrandPage(){
               })}
             </div>
           </div>
+
+          {/* Lightbox (zoom animado) */}
+          {lbOpen && (
+            <LightboxZoom
+              images={lbImages}
+              index={lbIndex}
+              thumbRect={lbRect}
+              onClose={()=>setLbOpen(false)}
+              onPrev={()=>setLbIndex(i => Math.max(0, i-1))}
+              onNext={()=>setLbIndex(i => Math.min(lbImages.length-1, i+1))}
+            />
+          )}
 
           <style jsx>{`
             .brand-layout{
@@ -265,12 +304,17 @@ export default function BrandPage(){
               grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             }
 
-            /* Carrusel controlado (una imagen a la vez, flechas + dots) */
+            /* Carrusel + botón de miniatura */
             .carousel2{
               position:relative; height:340px; border-radius:12px; overflow:hidden; background:#0e0f16;
               display:flex; align-items:center; justify-content:center;
             }
             .carousel2 img{ width:100%; height:100%; object-fit:cover; display:block; }
+            .thumbBtn{
+              padding:0; margin:0; border:0; background:transparent; width:100%; height:100%;
+              cursor: zoom-in;
+            }
+
             .nav{
               position:absolute; top:50%; transform:translateY(-50%);
               width:36px; height:36px; border-radius:10px; border:1px solid var(--line);
