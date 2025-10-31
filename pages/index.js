@@ -7,42 +7,54 @@ import RotatingCover from '../components/RotatingCover';
 function useBrands(){
   const [rows, setRows] = useState([]);
   useEffect(() => {
+    let cancel = false;
     (async () => {
-      // Traemos lo necesario para rotar portadas
-      const { data: brands } = await supabase
-        .from('brands')
-        .select('slug,name,logo_url,cover_url,cover_urls,instagram')
-        .order('name', { ascending: true });
+      try {
+        const { data: brands, error } = await supabase
+          .from('brands')
+          .select('slug,name,logo_url,cover_url,instagram')
+          .order('name', { ascending: true });
+        if (cancel) return;
+        if (error) {
+          console.warn('brands list error', error);
+          setRows([]);
+          return;
+        }
+        if (!brands || !brands.length) { setRows([]); return; }
 
-      if (!brands || !brands.length) { setRows([]); return; }
-
-      // Intentar brand_covers por cada slug (opcional)
-      const slugs = brands.map(b => b.slug);
-      const coversBySlug = {};
-      if (slugs.length){
-        const { data: bc } = await supabase
-          .from('brand_covers')
-          .select('brand_slug,url,position')
-          .in('brand_slug', slugs)
-          .order('position', { ascending: true });
-        if (bc && bc.length){
-          for (const r of bc) {
-            coversBySlug[r.brand_slug] = coversBySlug[r.brand_slug] || [];
-            if (r.url) coversBySlug[r.brand_slug].push(r.url);
+        const slugs = brands.map(b => b.slug);
+        let coversBySlug = {};
+        if (slugs.length){
+          try {
+            const { data: bc, error: ebc } = await supabase
+              .from('brand_covers')
+              .select('brand_slug,url,position')
+              .in('brand_slug', slugs)
+              .order('position', { ascending: true });
+            if (!ebc && Array.isArray(bc)) {
+              for (const r of bc) {
+                coversBySlug[r.brand_slug] = coversBySlug[r.brand_slug] || [];
+                if (r.url) coversBySlug[r.brand_slug].push(r.url);
+              }
+            }
+          } catch (e) {
+            console.warn('brand_covers list exception (ignorado):', e?.message || e);
           }
         }
+
+        const enriched = brands.map(b => {
+          const list =
+            (coversBySlug[b.slug] && coversBySlug[b.slug].length && coversBySlug[b.slug]) ||
+            [b.cover_url || b.logo_url || '/logo.png'];
+          return { ...b, coverList: list.filter(Boolean) };
+        });
+        setRows(enriched);
+      } catch (e) {
+        console.warn('brands list exception', e);
+        if (!cancel) setRows([]);
       }
-
-      const enriched = brands.map(b => {
-        const list =
-          (coversBySlug[b.slug] && coversBySlug[b.slug].length && coversBySlug[b.slug]) ||
-          (Array.isArray(b.cover_urls) && b.cover_urls.length && b.cover_urls) ||
-          [b.cover_url || b.logo_url || '/logo.png'];
-        return { ...b, coverList: list.filter(Boolean) };
-      });
-
-      setRows(enriched);
     })();
+    return () => { cancel = true; };
   }, []);
   return rows;
 }
@@ -53,9 +65,7 @@ export default function Home(){
   return (
     <main>
       <div className="container">
-        {/* Banda/hero opcional arriba… */}
-
-        {/* Grilla de marcas con portada rotatoria */}
+        {/* ⬇️ Dejamos tu banda de logos tal cual la tenías. Sólo va la grilla con rotación: */}
         <div className="grid-brands">
           {brands.map(b => (
             <Link key={b.slug} href={`/marcas/${b.slug}`} className="brand-card card">
