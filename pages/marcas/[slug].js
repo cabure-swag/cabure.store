@@ -117,7 +117,7 @@ export default function BrandPage(){
   function nextImg(pid, len){ setCarouselIndex(m => ({...m, [pid]: Math.min(len-1, (m[pid]||0)+1)})); }
   function setIdx(pid, idx){ setCarouselIndex(m => ({...m, [pid]: idx})); }
 
-  // Abrir modal de zoom desde la imagen visible (sin cambiar layout)
+  // Abrir modal de zoom desde la imagen visible
   function openLightboxFromThumb(e, p){
     const imgEl = e.currentTarget.querySelector('img');
     const rect = imgEl?.getBoundingClientRect?.();
@@ -134,20 +134,21 @@ export default function BrandPage(){
         <div className="container"><div className="small">Cargando…</div></div>
       ) : (
         <>
-          {/* portada */}
-          <div style={{ position:'relative', height: 300, background:'#0e0f16' }}>
+          {/* HERO (cover) */}
+          <div className="hero">
             <img
               src={brand.cover_url || brand.logo_url || '/logo.png'}
               alt={brand.name}
-              style={{ width:'100%', height:'100%', objectFit:'cover', filter:'brightness(.82)' }}
+              className="hero-img"
               loading="eager"
             />
           </div>
 
-          {/* cabecera + carrito */}
-          <div className="container" style={{ marginTop: -72 }}>
+          {/* CONTENIDO bajo el cover */}
+          <div className="container">
+            {/* Fila 1: Header superpuesto (solo el header se “sube”) + Carrito normal */}
             <div className="brand-layout">
-              <div className="brand-header card">
+              <div className="brand-header card header-float">
                 <img
                   src={brand.logo_url || '/logo.png'}
                   alt={brand.name}
@@ -164,7 +165,7 @@ export default function BrandPage(){
                   </div>
                 </div>
 
-                {/* MISMA POSICIÓN DE ANTES: al final del header, alineado arriba */}
+                {/* Instagram (misma ubicación y tamaño) */}
                 {brand.instagram && (
                   <a
                     href={
@@ -176,9 +177,8 @@ export default function BrandPage(){
                     rel="noreferrer"
                     aria-label="Instagram"
                     className="igbtn"
-                    style={{ alignSelf:'flex-start' }}  // ← mantiene ubicación original
+                    style={{ alignSelf:'flex-start' }}
                   >
-                    {/* Ícono Instagram (SVG) — mismo tamaño que un botón pequeño */}
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
                       fill="currentColor" width="22" height="22" aria-hidden="true">
                       <path d="M7.75 2h8.5A5.75 5.75 0 0 1 22 7.75v8.5A5.75 5.75 0 0 1 16.25 22h-8.5A5.75 5.75 0 0 1 2 16.25v-8.5A5.75 5.75 0 0 1 7.75 2zm0 1.5A4.25 4.25 0 0 0 3.5 7.75v8.5A4.25 4.25 0 0 0 7.75 20.5h8.5A4.25 4.25 0 0 0 20.5 16.25v-8.5A4.25 4.25 0 0 0 16.25 3.5h-8.5zM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 1.5A3.5 3.5 0 1 0 12 15a3.5 3.5 0 0 0 0-7zm4.75-.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z"/>
@@ -187,6 +187,7 @@ export default function BrandPage(){
                 )}
               </div>
 
+              {/* Carrito: ya no queda debajo del cover */}
               <div className="cart card">
                 <strong>Tu pedido</strong>
                 <div className="mt" style={{ display:'flex', flexDirection:'column', gap:8 }}>
@@ -209,12 +210,13 @@ export default function BrandPage(){
                 <div className="mt"><button className="btn" onClick={goCheckout} disabled={cart.length===0}>Ir al checkout</button></div>
               </div>
             </div>
-          </div>
 
-          {/* Filtros (chips) */}
-          <div className="container" style={{ marginTop: 12 }}>
+            {/* Toolbar de categorías (integrada) */}
             {cats.length > 0 && (
-              <div className="filters">
+              <div className="toolbar card">
+                <div className="toolbar-left">
+                  <strong>Categorías</strong>
+                </div>
                 <div className="chips">
                   {cats.map(c => (
                     <button key={c.id}
@@ -229,63 +231,62 @@ export default function BrandPage(){
                 </div>
               </div>
             )}
-          </div>
 
-          {/* productos */}
-          <div className="container" style={{ marginTop: 10 }}>
-            <div className="grid-products">
-              {filtered.map(p => {
-                const arr = imgsOf(p);
-                const idx = carouselIndex[p.id] || 0;
-                return (
-                  <div className="card" key={p.id} style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                    <div className="carousel2">
-                      {/* botón invisible que NO altera el layout ni la imagen */}
-                      <button
-                        className="thumbBtn"
-                        onClick={(e)=>openLightboxFromThumb(e, p)}
-                        aria-label="Ver imagen en grande"
-                      >
-                        <img
-                          src={arr[idx]?.url || p.image_url || '/logo.png'}
-                          alt={p.name}
-                          loading="lazy"
-                        />
-                      </button>
+            {/* Productos */}
+            <div style={{ marginTop: 12 }}>
+              <div className="grid-products">
+                {filtered.map(p => {
+                  const arr = imgsOf(p);
+                  const idx = carouselIndex[p.id] || 0;
+                  return (
+                    <div className="card" key={p.id} style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                      <div className="carousel2">
+                        <button
+                          className="thumbBtn"
+                          onClick={(e)=>openLightboxFromThumb(e, p)}
+                          aria-label="Ver imagen en grande"
+                        >
+                          <img
+                            src={arr[idx]?.url || p.image_url || '/logo.png'}
+                            alt={p.name}
+                            loading="lazy"
+                          />
+                        </button>
 
-                      {arr.length>1 && (
-                        <>
-                          <button className="nav prev" onClick={()=>prevImg(p.id)} aria-label="Anterior">‹</button>
-                          <button className="nav next" onClick={()=>nextImg(p.id, arr.length)} aria-label="Siguiente">›</button>
-                          <div className="dots">
-                            {arr.map((_,i)=>(
-                              <button key={i} className={`dot ${i===idx?'on':''}`} onClick={()=>setIdx(p.id, i)} />
-                            ))}
-                          </div>
-                        </>
-                      )}
+                        {arr.length>1 && (
+                          <>
+                            <button className="nav prev" onClick={()=>prevImg(p.id)} aria-label="Anterior">‹</button>
+                            <button className="nav next" onClick={()=>nextImg(p.id, arr.length)} aria-label="Siguiente">›</button>
+                            <div className="dots">
+                              {arr.map((_,i)=>(
+                                <button key={i} className={`dot ${i===idx?'on':''}`} onClick={()=>setIdx(p.id, i)} />
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      <div>
+                        <strong>{p.name}</strong>
+                        {p.description && <div className="small" style={{ marginTop:6 }}>{p.description}</div>}
+                      </div>
+
+                      <div className="row">
+                        <div className="small">Stock: {p.stock}</div>
+                        <div style={{ fontWeight:700 }}>${p.price}</div>
+                      </div>
+
+                      <div className="row" style={{ justifyContent:'flex-end' }}>
+                        <button className="btn" onClick={()=>add(p)}>Agregar</button>
+                      </div>
                     </div>
-
-                    <div>
-                      <strong>{p.name}</strong>
-                      {p.description && <div className="small" style={{ marginTop:6 }}>{p.description}</div>}
-                    </div>
-
-                    <div className="row">
-                      <div className="small">Stock: {p.stock}</div>
-                      <div style={{ fontWeight:700 }}>${p.price}</div>
-                    </div>
-
-                    <div className="row" style={{ justifyContent:'flex-end' }}>
-                      <button className="btn" onClick={()=>add(p)}>Agregar</button>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
 
-          {/* Lightbox (modal centrado, clic afuera cierra) */}
+          {/* Lightbox (modal centrado) */}
           {lbOpen && (
             <LightboxZoom
               images={lbImages}
@@ -298,22 +299,44 @@ export default function BrandPage(){
           )}
 
           <style jsx>{`
+            /* HERO */
+            .hero{
+              position: relative;
+              height: 300px;
+              background: #0e0f16;
+              z-index: 0;
+            }
+            .hero-img{
+              width:100%; height:100%; object-fit:cover; filter:brightness(.82);
+              display:block;
+            }
+
+            /* Layout principal */
             .brand-layout{
               display:grid;
               grid-template-columns: minmax(0, 3fr) minmax(280px, 1fr);
               gap: 20px;
+              margin-top: 0; /* ya no usamos margen negativo */
+              position: relative;
+              z-index: 1; /* sobre el cover */
             }
             @media (max-width: 980px){
               .brand-layout{ grid-template-columns: 1fr; }
               .cart { position: static !important; }
             }
+
+            /* Header superpuesto con glass (solo el header se “sube”) */
             .brand-header{
               display:flex; gap:16px; align-items:center;
               background: rgba(17,18,26,.6); backdrop-filter: blur(8px);
             }
+            .header-float{
+              transform: translateY(-72px); /* subimos SOLO el header */
+              z-index: 2; /* por encima del cover */
+            }
             .brand-header-info{ flex:1; min-width: 0; }
 
-            /* Botón IG con el MISMO footprint que antes (no mueve nada) */
+            /* Botón IG con footprint igual al anterior */
             .igbtn{
               display:inline-flex; align-items:center; justify-content:center;
               width:38px; height:38px; border-radius:12px;
@@ -325,7 +348,24 @@ export default function BrandPage(){
             }
             .igbtn:hover{ background: rgba(255,255,255,0.1); transform: translateY(-1px); }
 
-            .filters{ display:flex; align-items:center; }
+            /* Carrito */
+            .cart{
+              position: sticky; top: 90px; align-self: start;
+              z-index: 1; /* mantiene prioridad sobre contenido debajo */
+            }
+
+            /* Toolbar de categorías integrada */
+            .toolbar{
+              margin-top: -52px; /* subimos un poco para pegarla al header */
+              background: rgba(17,18,26,.6);
+              backdrop-filter: blur(8px);
+              display:flex; align-items:center; justify-content:space-between;
+              gap: 16px; padding: 10px 12px;
+              border-radius: 12px;
+            }
+            @media (max-width: 980px){
+              .toolbar{ margin-top: 8px; flex-direction: column; align-items:flex-start; }
+            }
             .chips{ display:flex; flex-wrap:wrap; gap:8px; }
             .chip{
               border:1px solid var(--line); background:#0f1118; color:var(--text);
@@ -333,9 +373,10 @@ export default function BrandPage(){
               transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
             }
             .chip.on{ background:#141a2a; box-shadow:0 0 0 1px rgba(124,58,237,.35) inset; }
-            .chip.clear{ opacity:.8 }
+            .chip.clear{ opacity:.85 }
             .chip:hover{ transform:translateY(-1px); }
 
+            /* Grilla de productos */
             .grid-products{
               display:grid; gap:16px;
               grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -347,13 +388,10 @@ export default function BrandPage(){
               display:flex; align-items:center; justify-content:center;
             }
             .carousel2 img{ width:100%; height:100%; object-fit:cover; display:block; }
-
-            /* Botón que envuelve la imagen sin alterar layout */
             .thumbBtn{
               display:block; width:100%; height:100%;
               padding:0; margin:0; border:0; background:transparent; cursor: zoom-in;
             }
-
             .nav{
               position:absolute; top:50%; transform:translateY(-50%);
               width:36px; height:36px; border-radius:10px; border:1px solid var(--line);
