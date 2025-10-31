@@ -3,17 +3,49 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
 import LightboxZoom from '../../components/LightboxZoom';
+import RotatingCover from '../../components/RotatingCover';
 
 function useBrand(slug){
   const [brand, setBrand] = useState(null);
   useEffect(() => {
     if(!slug) return;
     supabase.from('brands')
-      .select('slug,name,description,instagram,logo_url,cover_url,ship_domicilio,ship_sucursal,ship_free_from')
+      .select('slug,name,description,instagram,logo_url,cover_url,cover_urls,ship_domicilio,ship_sucursal,ship_free_from')
       .eq('slug', slug).maybeSingle()
       .then(({data}) => setBrand(data || null));
   }, [slug]);
   return brand;
+}
+
+function useBrandCovers(slug, brand){
+  const [covers, setCovers] = useState([]);
+  useEffect(() => {
+    (async () => {
+      if (!slug) return;
+      // 1) Si existe tabla brand_covers, usarla
+      const { data, error } = await supabase
+        .from('brand_covers')
+        .select('url, position')
+        .eq('brand_slug', slug)
+        .order('position', { ascending: true });
+
+      if (!error && Array.isArray(data) && data.length) {
+        setCovers(data.map(r => r.url).filter(Boolean));
+        return;
+      }
+
+      // 2) Si no hay filas, probar con brand.cover_urls (JSON array)
+      const arr = Array.isArray(brand?.cover_urls) ? brand.cover_urls.filter(Boolean) : [];
+      if (arr.length) {
+        setCovers(arr);
+        return;
+      }
+
+      // 3) Fallback: cover_url o logo_url
+      setCovers([brand?.cover_url || brand?.logo_url || '/logo.png'].filter(Boolean));
+    })();
+  }, [slug, brand?.cover_urls, brand?.cover_url, brand?.logo_url]);
+  return covers;
 }
 
 function useCats(slug){
@@ -74,6 +106,7 @@ export default function BrandPage(){
   const router = useRouter();
   const slug = router.query.slug;
   const brand = useBrand(slug);
+  const covers = useBrandCovers(slug, brand || {});
   const cats = useCats(slug);
   const products = useProducts(slug);
 
@@ -136,13 +169,14 @@ export default function BrandPage(){
         <div className="container"><div className="small">Cargando…</div></div>
       ) : (
         <>
-          {/* HERO (cover) */}
+          {/* HERO (portada rotatoria) */}
           <div className="hero">
-            <img
-              src={brand.cover_url || brand.logo_url || '/logo.png'}
+            <RotatingCover
+              images={covers}
               alt={brand.name}
               className="hero-img"
-              loading="eager"
+              intervalMs={10000}
+              objectFit="cover"
             />
           </div>
 
@@ -167,7 +201,7 @@ export default function BrandPage(){
                   </div>
                 </div>
 
-                {/* Instagram (misma ubicación y tamaño) */}
+                {/* Instagram (SVG oficial) */}
                 {brand.instagram && (
                   <a
                     href={
@@ -308,8 +342,7 @@ export default function BrandPage(){
               z-index: 0;
             }
             .hero-img{
-              width:100%; height:100%; object-fit:cover; filter:brightness(.82);
-              display:block;
+              width:100%; height:100%;
             }
 
             /* Layout principal */
@@ -317,24 +350,22 @@ export default function BrandPage(){
               display:grid;
               grid-template-columns: minmax(0, 3fr) minmax(280px, 1fr);
               gap: 20px;
-              margin-top: -72px;       /* subimos el bloque entero (carrito estable) */
+              margin-top: -72px;
               position: relative;
-              z-index: 2;              /* por encima del cover */
-              align-items: start;      /* no “baja” el carrito */
+              z-index: 2;
+              align-items: start;
             }
             @media (max-width: 980px){
               .brand-layout{ grid-template-columns: 1fr; margin-top: -40px; }
               .cart { position: static !important; }
             }
 
-            /* Header */
             .brand-header{
               display:flex; gap:16px; align-items:center;
               background: rgba(17,18,26,.6); backdrop-filter: blur(8px);
             }
             .brand-header-info{ flex:1; min-width: 0; }
 
-            /* Botón IG con footprint igual */
             .igbtn{
               display:inline-flex; align-items:center; justify-content:center;
               width:38px; height:38px; border-radius:12px;
@@ -346,13 +377,11 @@ export default function BrandPage(){
             }
             .igbtn:hover{ background: rgba(255,255,255,0.1); transform: translateY(-1px); }
 
-            /* Carrito pegado arriba y estable */
             .cart{
               position: sticky; top: 90px; align-self: start;
               z-index: 1;
             }
 
-            /* Toolbar de categorías integrada bajo el header */
             .toolbar{
               margin-top: 8px;
               background: rgba(17,18,26,.6);
@@ -374,13 +403,11 @@ export default function BrandPage(){
             .chip.clear{ opacity:.85 }
             .chip:hover{ transform:translateY(-1px); }
 
-            /* Grilla de productos */
             .grid-products{
               display:grid; gap:16px;
               grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             }
 
-            /* Carrusel */
             .carousel2{
               position:relative; height:340px; border-radius:12px; overflow:hidden; background:#0e0f16;
               display:flex; align-items:center; justify-content:center;
