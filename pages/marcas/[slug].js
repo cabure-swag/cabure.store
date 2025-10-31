@@ -15,6 +15,7 @@ function useBrand(slug){
   }, [slug]);
   return brand;
 }
+
 function useCats(slug){
   const [cats, setCats] = useState([]);
   useEffect(() => {
@@ -24,6 +25,7 @@ function useCats(slug){
   }, [slug]);
   return cats;
 }
+
 function useProducts(slug){
   const [items, setItems] = useState([]);
   useEffect(() => {
@@ -146,9 +148,9 @@ export default function BrandPage(){
 
           {/* CONTENIDO bajo el cover */}
           <div className="container">
-            {/* Fila 1: Header superpuesto (solo el header se “sube”) + Carrito normal */}
+            {/* Header + Carrito en grid (carrito estable a la derecha) */}
             <div className="brand-layout">
-              <div className="brand-header card header-float">
+              <div className="brand-header card">
                 <img
                   src={brand.logo_url || '/logo.png'}
                   alt={brand.name}
@@ -187,7 +189,6 @@ export default function BrandPage(){
                 )}
               </div>
 
-              {/* Carrito: ya no queda debajo del cover */}
               <div className="cart card">
                 <strong>Tu pedido</strong>
                 <div className="mt" style={{ display:'flex', flexDirection:'column', gap:8 }}>
@@ -211,7 +212,7 @@ export default function BrandPage(){
               </div>
             </div>
 
-            {/* Toolbar de categorías (integrada) */}
+            {/* Toolbar de categorías (integrada bajo el header) */}
             {cats.length > 0 && (
               <div className="toolbar card">
                 <div className="toolbar-left">
@@ -316,27 +317,24 @@ export default function BrandPage(){
               display:grid;
               grid-template-columns: minmax(0, 3fr) minmax(280px, 1fr);
               gap: 20px;
-              margin-top: 0; /* ya no usamos margen negativo */
+              margin-top: -72px;       /* subimos el bloque entero (carrito estable) */
               position: relative;
-              z-index: 1; /* sobre el cover */
+              z-index: 2;              /* por encima del cover */
+              align-items: start;      /* no “baja” el carrito */
             }
             @media (max-width: 980px){
-              .brand-layout{ grid-template-columns: 1fr; }
+              .brand-layout{ grid-template-columns: 1fr; margin-top: -40px; }
               .cart { position: static !important; }
             }
 
-            /* Header superpuesto con glass (solo el header se “sube”) */
+            /* Header */
             .brand-header{
               display:flex; gap:16px; align-items:center;
               background: rgba(17,18,26,.6); backdrop-filter: blur(8px);
             }
-            .header-float{
-              transform: translateY(-72px); /* subimos SOLO el header */
-              z-index: 2; /* por encima del cover */
-            }
             .brand-header-info{ flex:1; min-width: 0; }
 
-            /* Botón IG con footprint igual al anterior */
+            /* Botón IG con footprint igual */
             .igbtn{
               display:inline-flex; align-items:center; justify-content:center;
               width:38px; height:38px; border-radius:12px;
@@ -348,15 +346,15 @@ export default function BrandPage(){
             }
             .igbtn:hover{ background: rgba(255,255,255,0.1); transform: translateY(-1px); }
 
-            /* Carrito */
+            /* Carrito pegado arriba y estable */
             .cart{
               position: sticky; top: 90px; align-self: start;
-              z-index: 1; /* mantiene prioridad sobre contenido debajo */
+              z-index: 1;
             }
 
-            /* Toolbar de categorías integrada */
+            /* Toolbar de categorías integrada bajo el header */
             .toolbar{
-              margin-top: -52px; /* subimos un poco para pegarla al header */
+              margin-top: 8px;
               background: rgba(17,18,26,.6);
               backdrop-filter: blur(8px);
               display:flex; align-items:center; justify-content:space-between;
@@ -364,7 +362,7 @@ export default function BrandPage(){
               border-radius: 12px;
             }
             @media (max-width: 980px){
-              .toolbar{ margin-top: 8px; flex-direction: column; align-items:flex-start; }
+              .toolbar{ flex-direction: column; align-items:flex-start; }
             }
             .chips{ display:flex; flex-wrap:wrap; gap:8px; }
             .chip{
