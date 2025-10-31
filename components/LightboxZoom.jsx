@@ -3,79 +3,81 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
- * LightboxZoom
- * - Anima desde la posición/tamaño de la miniatura (thumbRect) hasta el centro (fullscreen-ish).
- * - Navegación: ← →, click en flechas, ESC, click oscuro para cerrar.
+ * LightboxZoom (modal no full-screen)
+ * - Anima desde la miniatura (thumbRect) hasta un modal centrado (máx 780×80vh).
+ * - Cerrar: click afuera / botón ✕ / ESC.
+ * - Navegar: ← → o botones si hay más de 1 imagen.
  *
  * Props:
- *  - images: [{ url } ...]  // lista de imágenes
- *  - index: number          // índice inicial
- *  - thumbRect: DOMRect     // posición/tamaño de la miniatura clickeada
- *  - onClose(): void
- *  - onPrev(): void
- *  - onNext(): void
+ *  - images: [{ url } | string]
+ *  - index: number
+ *  - thumbRect: DOMRect de la miniatura
+ *  - onClose, onPrev, onNext
  */
-export default function LightboxZoom({ images, index, thumbRect, onClose, onPrev, onNext }) {
+export default function LightboxZoom({ images=[], index=0, thumbRect, onClose, onPrev, onNext }) {
   const [mounted, setMounted] = useState(false);
-  const [animStyle, setAnimStyle] = useState(null);
-  const imgRef = useRef(null);
+  const [frameStyle, setFrameStyle] = useState(null);
   const overlayRef = useRef(null);
+  const imgRef = useRef(null);
 
-  // Montaje en portal
+  useEffect(() => { setMounted(true); return () => setMounted(false); }, []);
+
+  // Animación: miniatura -> modal centrado (no full-screen)
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
-  }, []);
-
-  // Animación de entrada: desde thumbRect → centro
-  useEffect(() => {
-    if (!imgRef.current || !thumbRect) return;
-
-    const img = imgRef.current;
+    if (!thumbRect) return;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
-    // Tamaño destino (max 88vh, manteniendo aspect cover-ish)
-    const destW = Math.min(vw * 0.9, 1200);
-    const destH = Math.min(vh * 0.88, 900);
+    const targetW = Math.min(780, vw * 0.92);
+    const targetH = Math.min(vh * 0.8, 780); // alto máx 80vh
 
-    // Partimos de la miniatura (posición absoluta)
-    const startX = thumbRect.left;
-    const startY = thumbRect.top;
-    const startW = thumbRect.width;
-    const startH = thumbRect.height;
+    const start = {
+      left: thumbRect.left,
+      top: thumbRect.top,
+      width: thumbRect.width,
+      height: thumbRect.height,
+    };
+    const end = {
+      left: (vw - targetW) / 2,
+      top: (vh - targetH) / 2,
+      width: targetW,
+      height: targetH,
+    };
 
-    // Centro destino
-    const endX = (vw - destW) / 2;
-    const endY = (vh - destH) / 2;
-
-    // Estado inicial (sin transición)
-    setAnimStyle({
+    // estado inicial sin transición
+    setFrameStyle({
       position: 'fixed',
-      left: startX + 'px',
-      top: startY + 'px',
-      width: startW + 'px',
-      height: startH + 'px',
-      transform: 'translate3d(0,0,0)',
+      left: `${start.left}px`,
+      top: `${start.top}px`,
+      width: `${start.width}px`,
+      height: `${start.height}px`,
       borderRadius: '12px',
+      transform: 'translate3d(0,0,0)',
+      boxShadow: '0 24px 80px rgba(0,0,0,.55)',
+      overflow: 'hidden',
+      zIndex: 100001,
     });
 
-    // Siguiente frame: activar transición a destino
+    // siguiente frame: animar a destino
     requestAnimationFrame(() => {
-      setAnimStyle({
+      setFrameStyle({
         position: 'fixed',
-        left: endX + 'px',
-        top: endY + 'px',
-        width: destW + 'px',
-        height: destH + 'px',
+        left: `${end.left}px`,
+        top: `${end.top}px`,
+        width: `${end.width}px`,
+        height: `${end.height}px`,
+        borderRadius: '14px',
         transform: 'translate3d(0,0,0)',
         transition: 'left 220ms ease, top 220ms ease, width 220ms ease, height 220ms ease, border-radius 220ms ease',
-        borderRadius: '14px',
+        boxShadow: '0 24px 80px rgba(0,0,0,.55)',
+        overflow: 'hidden',
+        zIndex: 100001,
+        background: '#0b0d14',
       });
     });
-  }, [index, thumbRect]);
+  }, [thumbRect, index]);
 
-  // Cerrar con ESC y navegar con flechas
+  // teclado
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') onClose?.();
@@ -86,61 +88,67 @@ export default function LightboxZoom({ images, index, thumbRect, onClose, onPrev
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, onPrev, onNext]);
 
-  // Click en overlay para cerrar (no sobre la imagen)
   const onOverlayClick = (e) => {
     if (e.target === overlayRef.current) onClose?.();
   };
 
-  // Si aún no está montado el portal, no renderizamos nada
   if (!mounted) return null;
 
   const src = images?.[index]?.url || images?.[index];
 
   return createPortal(
-    <div ref={overlayRef} className="lz-overlay" onClick={onOverlayClick}>
-      <div className="lz-frame" style={animStyle}>
-        <img ref={imgRef} className="lz-img" src={src} alt="" />
+    <>
+      {/* overlay clickeable */}
+      <div
+        ref={overlayRef}
+        className="lz-overlay"
+        onClick={onOverlayClick}
+      />
+      {/* frame (modal centrado) */}
+      <div className="lz-frame" style={frameStyle}>
+        <img ref={imgRef} src={src} alt="" className="lz-img" />
+        {/* navegación si hay varias */}
+        {images?.length > 1 && (
+          <>
+            <button className="lz-nav lz-prev" onClick={onPrev} aria-label="Anterior">‹</button>
+            <button className="lz-nav lz-next" onClick={onNext} aria-label="Siguiente">›</button>
+          </>
+        )}
+        <button className="lz-close" onClick={onClose} aria-label="Cerrar">✕</button>
       </div>
-
-      {/* Botones de navegación */}
-      {images?.length > 1 && (
-        <>
-          <button className="lz-nav lz-prev" onClick={onPrev} aria-label="Anterior">‹</button>
-          <button className="lz-nav lz-next" onClick={onNext} aria-label="Siguiente">›</button>
-        </>
-      )}
-
-      <button className="lz-close" onClick={onClose} aria-label="Cerrar">✕</button>
 
       <style jsx global>{`
         .lz-overlay{
-          position: fixed; inset: 0; background: rgba(8,10,16,.78);
-          backdrop-filter: blur(4px);
-          z-index: 99999;
-          animation: lzFadeIn 180ms ease;
+          position: fixed; inset: 0;
+          background: rgba(8,10,16,.6);
+          backdrop-filter: blur(2px);
+          z-index: 100000;
+          animation: lzFadeIn 140ms ease;
         }
         @keyframes lzFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-        .lz-frame { box-shadow: 0 24px 80px rgba(0,0,0,.55); overflow: hidden; }
-        .lz-img { width:100%; height:100%; object-fit: contain; background:#0b0d14; display:block; }
+        .lz-frame{ display:flex; align-items:center; justify-content:center; }
+        .lz-img{
+          width:100%; height:100%; object-fit: contain; display:block; background:#0b0d14;
+        }
 
         .lz-nav{
-          position: fixed; top: 50%; transform: translateY(-50%);
-          width:42px; height:42px; border-radius:12px; border:1px solid var(--line);
-          background: rgba(15,17,24,.75); color: var(--text); cursor: pointer;
-          z-index: 100000; backdrop-filter: blur(6px);
+          position:absolute; top:50%; transform:translateY(-50%);
+          width:38px; height:38px; border-radius:12px; border:1px solid var(--line);
+          background: rgba(15,17,24,.78); color: var(--text); cursor:pointer;
+          z-index: 100002; backdrop-filter: blur(4px);
         }
-        .lz-prev{ left: 24px; }
-        .lz-next{ right: 24px; }
+        .lz-prev{ left: 12px; }
+        .lz-next{ right: 12px; }
 
         .lz-close{
-          position: fixed; top: 18px; right: 18px;
-          width:40px; height:40px; border-radius:12px; border:1px solid var(--line);
-          background: rgba(15,17,24,.8); color: var(--text); cursor: pointer;
-          z-index: 100000; backdrop-filter: blur(6px);
+          position:absolute; top:10px; right:10px;
+          width:36px; height:36px; border-radius:10px; border:1px solid var(--line);
+          background: rgba(15,17,24,.82); color: var(--text); cursor: pointer;
+          z-index: 100002; backdrop-filter: blur(4px);
         }
       `}</style>
-    </div>,
+    </>,
     document.body
   );
 }
