@@ -8,33 +8,90 @@ function uid() {
 
 export default function VendedorPerfil(){
   const [session, setSession] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [myBrands, setMyBrands] = useState([]);
   const [selectedSlug, setSelectedSlug] = useState('');
   const [brand, setBrand] = useState(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
-  // Sesión
+  // 1) Sesión
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Marcas (ajustá el filtro a tu esquema si corresponde)
+  // 2) Rol admin (si existe profiles.role)
+  useEffect(() => {
+    if(!session?.user?.id) return;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .maybeSingle();
+        setIsAdmin(data?.role === 'admin');
+      } catch {
+        setIsAdmin(false);
+      }
+    })();
+  }, [session?.user?.id]);
+
+  // 3) Traer marcas visibles para el usuario
   useEffect(() => {
     if(!session) return;
     (async () => {
-      const { data } = await supabase
-        .from('brands')
-        .select('slug,name,logo_url,cover_url,cover_urls')
-        .order('name', { ascending: true });
-      setMyBrands(data || []);
-      if (!selectedSlug && data?.[0]?.slug) setSelectedSlug(data[0].slug);
-    })();
-  }, [session]);
+      try {
+        if (isAdmin) {
+          // Admin ve todas
+          const { data, error } = await supabase
+            .from('brands')
+            .select('slug,name,logo_url,cover_url,cover_urls')
+            .order('name', { ascending: true });
+          if (error) throw error;
+          setMyBrands(data || []);
+          if (!selectedSlug && data?.[0]?.slug) setSelectedSlug(data[0].slug);
+          return;
+        }
 
-  // Marca seleccionada
+        // No admin → intento por brands_vendors (si existe)
+        // Traigo slugs asignados
+        const { data: assigned, error: eAssign } = await supabase
+          .from('brands_vendors')
+          .select('brand_slug')
+          .eq('user_id', session.user.id);
+
+        if (!eAssign && Array.isArray(assigned) && assigned.length) {
+          const slugs = assigned.map(x => x.brand_slug);
+          const { data, error } = await supabase
+            .from('brands')
+            .select('slug,name,logo_url,cover_url,cover_urls')
+            .in('slug', slugs)
+            .order('name', { ascending: true });
+          if (error) throw error;
+          setMyBrands(data || []);
+          if (!selectedSlug && data?.[0]?.slug) setSelectedSlug(data[0].slug);
+          return;
+        }
+
+        // Fallback: si no existe brands_vendors o no hay asignaciones,
+        // mostramos todas en solo-lectura (porque habilitamos SELECT).
+        const { data } = await supabase
+          .from('brands')
+          .select('slug,name,logo_url,cover_url,cover_urls')
+          .order('name', { ascending: true });
+        setMyBrands(data || []);
+        if (!selectedSlug && data?.[0]?.slug) setSelectedSlug(data[0].slug);
+      } catch (e) {
+        console.warn('fetch myBrands error:', e?.message || e);
+        setMyBrands([]);
+      }
+    })();
+  }, [session, isAdmin]);
+
+  // 4) Cargar marca seleccionada
   useEffect(() => {
     if(!selectedSlug) { setBrand(null); return; }
     (async () => {
@@ -76,7 +133,7 @@ export default function VendedorPerfil(){
       setMsg('Portadas actualizadas ✔');
     } catch (err) {
       console.error(err);
-      setMsg('Error subiendo imágenes');
+      setMsg('Error subiendo imágenes (revisá permisos de Storage/brands)');
     } finally {
       setSaving(false);
       e.target.value = '';
@@ -131,8 +188,15 @@ export default function VendedorPerfil(){
                 value={selectedSlug}
                 onChange={e=>setSelectedSlug(e.target.value)}
               >
-                {myBrands.map(b => <option key={b.slug} value={b.slug}>{b.name}</option>)}
+                {(myBrands || []).map(b => (
+                  <option key={b.slug} value={b.slug}>{b.name}</option>
+                ))}
               </select>
+              {(!myBrands || myBrands.length===0) && (
+                <div className="small" style={{marginTop:8, opacity:.8}}>
+                  No tenés marcas visibles. Si sos vendedor, pedile al admin que te asigne una marca.
+                </div>
+              )}
             </div>
 
             {brand && (
