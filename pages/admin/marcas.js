@@ -1,163 +1,101 @@
 // pages/admin/marcas.js
-import { useEffect, useState } from 'react';
-import { supabase } from '../../lib/supabaseClient';
-
-function slugify(s) {
-  return (s || '')
-    .toString()
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)+/g, '');
+setLoading(true)
+const { data, error } = await supabase.from('brands').select('*').order('created_at',{ascending:false})
+if (error) setError(error.message)
+setBrands(data||[])
+setLoading(false)
 }
 
-export default function AdminMarcas() {
-  const [ok, setOk] = useState(false);
-  const [brands, setBrands] = useState([]);
-  const [busyCreate, setBusyCreate] = useState(false);
 
-  async function load() {
-    const { data: bs } = await supabase.from('brands').select('*').order('name');
-    setBrands(bs || []);
-  }
+useEffect(()=>{ load() },[])
 
-  useEffect(() => {
-    (async () => {
-      const { data: sess } = await supabase.auth.getSession();
-      const u = sess?.session?.user;
-      if (!u) return setOk(false);
-      const { data: a } = await supabase.from('admin_emails').select('email').eq('email', u.email);
-      const admin = Array.isArray(a) && a.length > 0;
-      setOk(admin);
-      if (admin) await load();
-    })();
-  }, []);
 
-  async function onCreate(e) {
-    e.preventDefault();
-    if (busyCreate) return;
-    setBusyCreate(true);
-    const form = e.currentTarget;
+async function createBrand(e){
+e.preventDefault()
+const form = new FormData(e.currentTarget)
+let name = String(form.get('name')||'').trim()
+let slug = String(form.get('slug')||'').trim() || slugify(name)
+const description = String(form.get('description')||'').trim()
+const instagram = String(form.get('instagram')||'').trim()
+const transfer_alias = String(form.get('transfer_alias')||'').trim()
+const transfer_titular = String(form.get('transfer_titular')||'').trim()
 
-    try {
-      const f = new FormData(form);
-      const name = f.get('name');
-      const slug = slugify(f.get('slug') || name);
-      const desc = f.get('description') || '';
-      const ig = f.get('instagram') || '';
-      const logoFile = f.get('logo');
-      const coverFile = f.get('cover');
 
-      let logo_url = null;
-      if (logoFile && logoFile.size > 0) {
-        const path = `brands/${slug}/${Date.now()}_${logoFile.name}`;
-        const up = await supabase.storage.from('media').upload(path, logoFile);
-        if (up.error) throw new Error(`Error subiendo logo: ${up.error.message}`);
-        const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
-        logo_url = pub?.publicUrl || null;
-      }
+const insert = { name, slug, description, instagram, transfer_alias, transfer_titular }
+const { error } = await supabase.from('brands').insert(insert)
+if (error) return alert(error.message)
+e.currentTarget.reset()
+await load()
+}
 
-      let cover_url = null;
-      if (coverFile && coverFile.size > 0) {
-        const path = `brands/${slug}/cover_${Date.now()}_${coverFile.name}`;
-        const up = await supabase.storage.from('media').upload(path, coverFile);
-        if (up.error) throw new Error(`Error subiendo portada: ${up.error.message}`);
-        const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
-        cover_url = pub?.publicUrl || null;
-      }
 
-      const { error } = await supabase
-        .from('brands')
-        .insert({ slug, name, description: desc, instagram: ig, logo_url, cover_url });
+async function removeBrand(id){
+if(!confirm('¿Eliminar la marca?')) return
+const { error } = await supabase.from('brands').delete().eq('id', id)
+if (error) return alert(error.message)
+await load()
+}
 
-      if (error) throw new Error(error.message);
 
-      form.reset();
-      alert('Marca creada');
-      await load();
-    } catch (err) {
-      alert(err.message || 'No se pudo crear la marca');
-    } finally {
-      setBusyCreate(false);
-    }
-  }
+return (
+<main className="container" style={{padding:'24px',maxWidth:980,margin:'0 auto'}}>
+<h1>Admin · Marcas</h1>
+{loading && <p>Cargando…</p>}
+{error && <p style={{color:'#f88'}}>Error: {error}</p>}
 
-  async function onSave(e, slug) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    const mp_access_token = f.get('mp_access_token') || null;
-    const mp_public_key = f.get('mp_public_key') || null;
-    const transfer_alias = f.get('transfer_alias') || null;
-    const transfer_titular = f.get('transfer_titular') || null;
-    const ship_domicilio = f.get('ship_domicilio') === '' ? null : Number(f.get('ship_domicilio'));
-    const ship_sucursal = f.get('ship_sucursal') === '' ? null : Number(f.get('ship_sucursal'));
-    const ship_free_from = Number(f.get('ship_free_from') || 0);
-    const mp_fee = f.get('mp_fee') === '' ? null : Number(f.get('mp_fee'));
 
-    const { error } = await supabase
-      .from('brands')
-      .update({
-        mp_access_token, mp_public_key,
-        transfer_alias, transfer_titular,
-        ship_domicilio, ship_sucursal, ship_free_from,
-        mp_fee,
-      })
-      .eq('slug', slug);
+<form onSubmit={createBrand} className="card" style={{display:'grid',gap:12,padding:16,marginTop:12}}>
+<div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12}}>
+<div><label>Nombre</label><input className="input" name="name" required /></div>
+<div><label>Slug (opcional)</label><input className="input" name="slug" placeholder="auto" /></div>
+</div>
+<div>
+<label>Descripción</label>
+<textarea name="description" className="input" rows="3" />
+</div>
+<div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12}}>
+<div><label>Instagram</label><input className="input" name="instagram" placeholder="https://instagram.com/mi-marca" /></div>
+<div><label>Alias/CBU</label><input className="input" name="transfer_alias" /></div>
+</div>
+<div>
+<label>Titular</label>
+<input className="input" name="transfer_titular" />
+</div>
+<div><button className="btn">Crear marca</button></div>
+</form>
 
-    if (error) return alert(`No se pudo guardar: ${error.message}`);
-    alert('Guardado');
-  }
 
-  if (!ok) return <main className="container"><h1 className="h1">Admin — Marcas</h1><p className="small">Necesitás cuenta admin.</p></main>;
+<section style={{marginTop:24,display:'grid',gap:12}}>
+{brands.map(b => (
+<div key={b.id} className="card" style={{padding:12,display:'grid',gridTemplateColumns:'1fr auto',alignItems:'center',gap:8}}>
+<div>
+<div style={{fontWeight:600}}>{b.name} <span style={{opacity:.7}}>(/{b.slug})</span></div>
+<div className="small">{b.description||'Sin descripción'}</div>
+{b.instagram && <div className="small">IG: {b.instagram}</div>}
+</div>
+<div style={{display:'flex',gap:8}}>
+<button className="btn-ghost" onClick={()=>removeBrand(b.id)}>Eliminar</button>
+</div>
+</div>
+))}
+{(!loading && !brands.length) && <p>No hay marcas.</p>}
+</section>
 
-  return (
-    <main className="container">
-      <h1 className="h1">Admin — Marcas</h1>
 
-      <div className="card">
-        <strong>Crear marca</strong>
-        <form onSubmit={onCreate} className="grid" style={{ gridTemplateColumns: 'repeat(2,1fr)' }}>
-          <div><label>Nombre</label><input className="input" name="name" required /></div>
-          <div><label>Slug (opcional)</label><input className="input" name="slug" placeholder="auto desde nombre" /></div>
-          <div style={{ gridColumn: '1/-1' }}><label>Descripción</label><textarea name="description" className="input" rows="3" /></div>
-          <div><label>Instagram (URL)</label><input className="input" name="instagram" placeholder="https://instagram.com/tu-marca" /></div>
-          <div><label>Logo (archivo)</label><input className="input" type="file" name="logo" accept="image/*" /></div>
-          <div><label>Portada (archivo)</label><input className="input" type="file" name="cover" accept="image/*" /></div>
-          <div style={{ gridColumn: '1/-1' }}>
-            <button className="btn" disabled={busyCreate}>{busyCreate ? 'Creando…' : 'Crear'}</button>
-          </div>
-        </form>
-        <p className="small">Logo y portada son opcionales; si subís archivos van al bucket público <b>media</b>.</p>
-      </div>
+<style jsx>{`
+.card{border:1px solid #222;border-radius:12px;background:#0b1220}
+.input{width:100%;background:#0b1220;border:1px solid #222;border-radius:10px;padding:8px;color:#fff}
+.btn{background:#1f2937;border:1px solid #374151;border-radius:10px;padding:8px 12px;color:#fff}
+.btn-ghost{background:transparent;border:1px solid #374151;border-radius:10px;padding:8px 12px;color:#fff}
+.small{opacity:.8}
+`}</style>
+</main>
+)
+}
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', marginTop: 16 }}>
-        {brands.map(b => (
-          <div key={b.slug} className="card">
-            <div className="row">
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <img src={b.logo_url || '/logo.png'} alt={b.name} style={{ width: 40, height: 40, borderRadius: 20, objectFit: 'cover', border: '1px solid var(--line)' }} />
-                <div>
-                  <strong>{b.name}</strong>
-                  <div className="small">{b.slug}</div>
-                </div>
-              </div>
-              <a className="badge" href={`/marcas/${b.slug}`}>Ver</a>
-            </div>
 
-            <form onSubmit={(e) => onSave(e, b.slug)} className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 12 }}>
-              <div><label>MP Access Token</label><input className="input" name="mp_access_token" defaultValue={b.mp_access_token || ''} /></div>
-              <div><label>MP Public Key (opcional)</label><input className="input" name="mp_public_key" defaultValue={b.mp_public_key || ''} /></div>
-              <div><label>Alias/CBU</label><input className="input" name="transfer_alias" defaultValue={b.transfer_alias || ''} /></div>
-              <div><label>Titular</label><input className="input" name="transfer_titular" defaultValue={b.transfer_titular || ''} /></div>
-              <div><label>Envío a domicilio (ARS)</label><input className="input" type="number" name="ship_domicilio" defaultValue={b.ship_domicilio ?? ''} placeholder="vacío = desactivado" /></div>
-              <div><label>Envío a sucursal (ARS)</label><input className="input" type="number" name="ship_sucursal" defaultValue={b.ship_sucursal ?? ''} placeholder="vacío = desactivado" /></div>
-              <div><label>Gratis desde (ARS)</label><input className="input" type="number" name="ship_free_from" defaultValue={b.ship_free_from || 0} /></div>
-              <div><label>% MP (vacío = global 10)</label><input className="input" type="number" name="mp_fee" defaultValue={b.mp_fee ?? ''} /></div>
-              <div style={{ gridColumn: '1/-1' }}><button className="btn">Guardar</button></div>
-            </form>
-          </div>
-        ))}
-      </div>
-    </main>
-  );
+export async function getServerSideProps(ctx){
+const gate = await requireAdmin(ctx)
+if (gate.redirect) return gate
+return { props: {} }
 }
