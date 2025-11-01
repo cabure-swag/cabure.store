@@ -1,150 +1,111 @@
-// CONTENT-ONLY: sin Topbar/Layout (usa tu layout global)
+// CONTENT-ONLY
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import ImageUploader from '../../components/ImageUploader';
+import Toast from '../../components/Toast';
 
-function uid(){ return (globalThis?.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)); }
+function isAdmin(role){ return role==='admin'; }
 
-async function fetchRole() {
+async function getRole(){
   const { data: s } = await supabase.auth.getSession();
   const user = s?.session?.user;
-  if (!user) return { user: null, role: null };
+  if(!user) return { user:null, role:null };
   const { data } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
   return { user, role: data?.role || 'user' };
 }
-async function fetchBrandsForUser({ user, role }) {
-  if (role === 'admin') {
-    const { data } = await supabase.from('brands').select('slug,name,logo_url,cover_urls,description,instagram,ship_domicilio,ship_sucursal,ship_free_from').order('name');
-    return data || [];
+async function getBrands({ user, role }){
+  if(isAdmin(role)){
+    const { data } = await supabase.from('brands').select('*').order('name');
+    return data||[];
   }
-  const { data: assigned } = await supabase.from('brands_vendors').select('brand_slug').eq('user_id', user.id);
-  if (Array.isArray(assigned) && assigned.length){
-    const slugs = assigned.map(x=>x.brand_slug);
-    const { data } = await supabase.from('brands').select('slug,name,logo_url,cover_urls,description,instagram,ship_domicilio,ship_sucursal,ship_free_from').in('slug', slugs).order('name');
-    return data || [];
+  const { data: rel } = await supabase.from('brands_vendors').select('brand_slug').eq('user_id', user.id);
+  if(rel?.length){
+    const slugs = rel.map(r=>r.brand_slug);
+    const { data } = await supabase.from('brands').select('*').in('slug', slugs).order('name');
+    return data||[];
   }
   return [];
 }
 
-export default function VendedorPerfilContent(){
+export default function VendedorPerfil(){
   const [session, setSession] = useState(null);
   const [role, setRole] = useState(null);
-  const [myBrands, setMyBrands] = useState([]);
-  const [selectedSlug, setSelectedSlug] = useState('');
+  const [list, setList] = useState([]);
+  const [slug, setSlug] = useState('');
   const [brand, setBrand] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState('');
+  const [toast, setToast] = useState('');
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => sub.subscription.unsubscribe();
+  useEffect(()=>{
+    supabase.auth.getSession().then(({data})=>setSession(data.session||null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e,s)=>setSession(s));
+    return ()=>sub.subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!session) return;
-    let active = true;
-    (async () => {
-      const { user, role } = await fetchRole();
-      if (!active) return;
-      setRole(role);
-      const list = await fetchBrandsForUser({ user, role });
-      if (!active) return;
-      setMyBrands(list);
-      if (!selectedSlug && list?.[0]?.slug) setSelectedSlug(list[0].slug);
-    })();
-    return () => { active = false; };
-  }, [session]);
+  useEffect(()=>{ if(!session) return; let on = true; (async ()=>{
+    const { user, role } = await getRole();
+    if(!on) return;
+    setRole(role);
+    const b = await getBrands({ user, role });
+    if(!on) return;
+    setList(b);
+    if(!slug && b?.[0]?.slug) setSlug(b[0].slug);
+  })(); return ()=>{ on=false; }; }, [session]);
 
-  useEffect(() => {
-    if(!selectedSlug) { setBrand(null); return; }
-    let active = true;
-    (async () => {
-      const { data } = await supabase.from('brands').select('*').eq('slug', selectedSlug).maybeSingle();
-      if (!active) return;
-      setBrand(data || null);
-    })();
-    return () => { active = false; };
-  }, [selectedSlug]);
+  useEffect(()=>{ if(!slug) return setBrand(null); let on = true; (async ()=>{
+    const { data } = await supabase.from('brands').select('*').eq('slug', slug).maybeSingle();
+    if(!on) return;
+    setBrand(data||null);
+  })(); return ()=>{ on=false; }; }, [slug]);
 
-  async function updateField(field, value){
-    if (!brand) return;
-    setSaving(true);
+  if(!session || !(role==='admin' || role==='vendor')) return <div>No tenés permiso para ver Vendedor.</div>;
+
+  async function upd(field, value){
     const { error } = await supabase.from('brands').update({ [field]: value }).eq('slug', brand.slug);
-    setSaving(false);
-    if (error) return alert(error.message);
-    setBrand(b => ({ ...b, [field]: value }));
-    setMsg('Guardado ✔'); setTimeout(()=>setMsg(''), 1200);
+    if(error) return alert(error.message);
+    setBrand(b=>({...b,[field]:value}));
+    setToast('Guardado');
   }
-
-  async function uploadLogo(e){
-    const file = e.target.files?.[0]; if(!file || !brand) return;
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-    const path = `brands/${brand.slug}/logo-${uid()}.${ext}`;
-    const { error } = await supabase.storage.from('media').upload(path, file, { upsert:false, cacheControl:'3600' });
-    if (error) return alert(error.message);
-    const { data } = supabase.storage.from('media').getPublicUrl(path);
-    await updateField('logo_url', data.publicUrl);
-    e.target.value='';
-  }
-
-  async function uploadCovers(e){
-    const files = Array.from(e.target.files || []);
-    if (!files.length || !brand) return;
-    const urls = Array.isArray(brand.cover_urls) ? [...brand.cover_urls] : [];
-    for (const file of files){
-      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-      const path = `brands/${brand.slug}/covers/${uid()}.${ext}`;
-      const { error } = await supabase.storage.from('media').upload(path, file, { upsert:false, cacheControl:'3600' });
-      if (error) { alert(error.message); continue; }
-      const { data } = supabase.storage.from('media').getPublicUrl(path);
-      urls.push(data.publicUrl);
-    }
-    await updateField('cover_urls', urls);
-    e.target.value='';
-  }
-
-  if (!session) return <div>Iniciá sesión.</div>;
-  if (!role || (role!=='admin' && role!=='vendor')) return <div>No tenés permiso para ver Vendedor.</div>;
 
   return (
     <section>
       <h1>Vendedor — Perfil & Portadas</h1>
+
       <div className="card">
         <label className="lbl">Marca</label>
-        <select value={selectedSlug} onChange={e=>setSelectedSlug(e.target.value)}>
-          {(myBrands||[]).map(b => <option key={b.slug} value={b.slug}>{b.name}</option>)}
+        <select value={slug} onChange={e=>setSlug(e.target.value)}>
+          {list.map(b=>(<option key={b.slug} value={b.slug}>{b.name}</option>))}
         </select>
       </div>
 
       {brand && (
         <div className="card">
           <div className="row gap">
-            <div style={{width:160}}>
+            <div style={{width:180}}>
               <div className="lbl">Logo</div>
-              <img src={brand.logo_url || '/logo.png'} alt="" style={{width:'100%', height:120, objectFit:'cover', borderRadius:12, border:'1px solid var(--line)'}}/>
-              <input type="file" accept="image/*" onChange={uploadLogo} disabled={saving} />
+              <img src={brand.logo_url || '/logo.png'} className="logo" alt=""/>
+              <ImageUploader folder={`brands/${brand.slug}`} onUploaded={(urls)=>upd('logo_url', urls[0])} />
             </div>
             <div style={{flex:1}}>
               <div className="lbl">Descripción</div>
-              <textarea defaultValue={brand.description || ''} rows={3} onBlur={(e)=>updateField('description', e.target.value)} />
+              <textarea defaultValue={brand.description||''} rows={3} onBlur={(e)=>upd('description', e.target.value)}/>
               <div className="row gap">
                 <div style={{flex:1}}>
                   <div className="lbl">Instagram</div>
-                  <input defaultValue={brand.instagram || ''} onBlur={(e)=>updateField('instagram', e.target.value)} placeholder="@usuario o url" />
+                  <input defaultValue={brand.instagram||''} onBlur={(e)=>upd('instagram', e.target.value)} placeholder="@usuario o url"/>
                 </div>
               </div>
               <div className="row gap">
                 <div>
                   <div className="lbl">Envío a domicilio (ARS)</div>
-                  <input type="number" defaultValue={brand.ship_domicilio ?? ''} onBlur={(e)=>updateField('ship_domicilio', e.target.value===''? null : Number(e.target.value))}/>
+                  <input type="number" defaultValue={brand.ship_domicilio ?? ''} onBlur={(e)=>upd('ship_domicilio', e.target.value===''? null : Number(e.target.value))}/>
                 </div>
                 <div>
                   <div className="lbl">Envío a sucursal (ARS)</div>
-                  <input type="number" defaultValue={brand.ship_sucursal ?? ''} onBlur={(e)=>updateField('ship_sucursal', e.target.value===''? null : Number(e.target.value))}/>
+                  <input type="number" defaultValue={brand.ship_sucursal ?? ''} onBlur={(e)=>upd('ship_sucursal', e.target.value===''? null : Number(e.target.value))}/>
                 </div>
                 <div>
                   <div className="lbl">Envío gratis desde (ARS)</div>
-                  <input type="number" defaultValue={brand.ship_free_from ?? 0} onBlur={(e)=>updateField('ship_free_from', Number(e.target.value||0))}/>
+                  <input type="number" defaultValue={brand.ship_free_from ?? 0} onBlur={(e)=>upd('ship_free_from', Number(e.target.value||0))}/>
                 </div>
               </div>
             </div>
@@ -152,13 +113,13 @@ export default function VendedorPerfilContent(){
 
           <div className="lbl" style={{marginTop:10}}>Portadas (múltiples)</div>
           <div className="thumbs">
-            {(brand.cover_urls || []).map((u,i)=>(<img key={i} src={u} alt="" />))}
+            {(brand.cover_urls||[]).map((u,i)=>(<img key={i} src={u} alt=""/>))}
           </div>
-          <input type="file" multiple accept="image/*" onChange={uploadCovers} disabled={saving} />
-
-          {msg && <div className="small" style={{marginTop:8}}>{msg}</div>}
+          <ImageUploader folder={`brands/${brand.slug}/covers`} multiple onUploaded={(urls)=>upd('cover_urls', [...(brand.cover_urls||[]), ...urls])} />
         </div>
       )}
+
+      <Toast msg={toast} onDone={()=>setToast('')} />
 
       <style jsx>{`
         .lbl{ display:block; margin:8px 0 6px; font-weight:600; }
@@ -166,8 +127,9 @@ export default function VendedorPerfilContent(){
         .gap{ gap:12px; }
         .card{ border:1px solid var(--line); border-radius:12px; padding:14px; background:#0e0f16; margin-bottom:12px; }
         select, input, textarea{ width:100%; background:#0f1118; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:8px; }
-        .thumbs{ display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
-        .thumbs img{ width:100px; height:64px; object-fit:cover; border-radius:8px; border:1px solid var(--line); }
+        .logo{ width:100%; height:140px; object-fit:cover; border-radius:12px; border:1px solid var(--line); margin-bottom:8px; }
+        .thumbs{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+        .thumbs img{ width:120px; height:76px; object-fit:cover; border-radius:8px; border:1px solid var(--line); }
       `}</style>
     </section>
   );

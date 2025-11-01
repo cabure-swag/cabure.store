@@ -1,137 +1,41 @@
-// components/ImageUploader.jsx
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-export default function ImageUploader({
-  brandSlug,
-  productId,              // si es nuevo, podés pasar 'tmp-...' y luego guardamos urls
-  initial = [],           // [{url}, ...]
-  onChange,               // (filesArray: {url}[]) => void
-  max = 5,
-}) {
-  const [items, setItems] = useState((initial || []).slice(0, max));
-  const [busy, setBusy]   = useState(false);
-  const dragIndex = useRef(null);
+function uid(){ return (globalThis?.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)); }
 
-  useEffect(() => { onChange?.(items); }, [items]); // notificar cambios al padre
+export default function ImageUploader({ folder, multiple=false, onUploaded }){
+  const [loading, setLoading] = useState(false);
 
-  const onDrop = useCallback(async (ev) => {
-    ev.preventDefault();
-    const files = ev.dataTransfer?.files ? Array.from(ev.dataTransfer.files) : [];
-    if (!files.length) return;
-    await uploadFiles(files);
-  }, [items, brandSlug, productId]);
-
-  const onPick = async (e) => {
-    const files = e.target.files ? Array.from(e.target.files) : [];
-    if (!files.length) return;
-    await uploadFiles(files);
-    e.target.value = '';
-  };
-
-  async function uploadFiles(files){
-    try {
-      setBusy(true);
-      const left = Math.max(0, max - items.length);
-      const take = files.slice(0, left);
-
-      const ups = [];
-      for (const file of take){
-        const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-        const safe = Date.now() + '_' + file.name.replace(/[^\w.\-]/g, '_');
-        const path = `products/${brandSlug}/${productId}/${safe}`;
-
-        const { error } = await supabase.storage.from('media').upload(path, file, {
-          upsert: false, cacheControl: '3600', contentType: file.type || 'image/jpeg'
-        });
-        if (error) throw error;
-
-        const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
-        ups.push({ url: pub.publicUrl });
-      }
-
-      const next = [...items, ...ups].slice(0, max);
-      setItems(next);
-    } catch (err) {
-      alert('Error al subir imagen: ' + (err?.message || err));
-    } finally {
-      setBusy(false);
+  async function onChange(e){
+    const files = Array.from(e.target.files || []);
+    if(!files.length) return;
+    setLoading(true);
+    const urls = [];
+    for(const file of files){
+      const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+      const path = `${folder.replace(/\/$/,'')}/${uid()}.${ext}`;
+      const { error } = await supabase.storage.from('media').upload(path, file, { upsert:false, cacheControl: '3600' });
+      if(error){ console.error(error); continue; }
+      const { data } = supabase.storage.from('media').getPublicUrl(path);
+      urls.push(data.publicUrl);
     }
-  }
-
-  function onDragStart(idx){ dragIndex.current = idx; }
-  function onDragOver(e){ e.preventDefault(); }
-  function onDropReorder(idx){
-    const from = dragIndex.current;
-    if (from === null || from === idx) return;
-    const arr = items.slice();
-    const [m] = arr.splice(from, 1);
-    arr.splice(idx, 0, m);
-    dragIndex.current = null;
-    setItems(arr);
-  }
-
-  function removeAt(i){
-    const arr = items.slice(); arr.splice(i,1); setItems(arr);
+    setLoading(false);
+    onUploaded && onUploaded(urls);
+    e.target.value='';
   }
 
   return (
-    <div>
-      <div
-        onDrop={onDrop}
-        onDragOver={(e)=>e.preventDefault()}
-        className="uploader"
-      >
-        <input type="file" accept="image/*" multiple onChange={onPick} disabled={busy || items.length>=max} />
-        <span>{busy ? 'Subiendo...' : `Arrastrá o hacé click para subir (máx ${max})`}</span>
-      </div>
-
-      <div className="grid">
-        {items.map((it, i) => (
-          <div
-            key={i}
-            className="slot"
-            draggable
-            onDragStart={()=>onDragStart(i)}
-            onDragOver={onDragOver}
-            onDrop={()=>onDropReorder(i)}
-            title={i===0 ? 'Imagen principal' : `Imagen ${i+1}`}
-          >
-            <img src={it.url} alt={`img-${i}`} />
-            <div className="tag">{i===0 ? 'Principal' : `#${i+1}`}</div>
-            <button className="rm" onClick={()=>removeAt(i)}>✕</button>
-          </div>
-        ))}
-      </div>
-
+    <label className="uploader">
+      <input type="file" accept="image/*" onChange={onChange} multiple={multiple} disabled={loading} hidden />
+      <span>{loading ? 'Subiendo…' : (multiple ? 'Subir imágenes' : 'Subir imagen')}</span>
       <style jsx>{`
         .uploader{
-          border: 1px dashed var(--line);
-          background:#0f1118;
-          padding: 14px;
-          border-radius: 12px;
-          display:flex; align-items:center; gap:10px;
-          margin-bottom: 10px;
+          display:inline-flex; align-items:center; justify-content:center;
+          border:1px solid var(--line); background:#0f1118; color:var(--text);
+          border-radius:10px; padding:8px 10px; cursor:pointer;
         }
-        .uploader input[type="file"]{ cursor:pointer; }
-        .grid{
-          display:grid; gap:10px;
-          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        }
-        .slot{
-          position:relative; border:1px solid var(--line); border-radius:12px; overflow:hidden;
-          background:#0b0d14;
-        }
-        .slot img{ width:100%; height:160px; object-fit:cover; display:block; }
-        .tag{
-          position:absolute; top:8px; left:8px; font-size:12px; opacity:.9;
-          background: #141a2a; border: 1px solid var(--line); padding: 2px 6px; border-radius: 8px;
-        }
-        .rm{
-          position:absolute; top:8px; right:8px; background:#1a1010; border:1px solid #3a2a2a;
-          color:#f6b3b3; border-radius:8px; cursor:pointer; padding: 2px 6px;
-        }
+        .uploader:hover{ filter:brightness(1.05); }
       `}</style>
-    </div>
+    </label>
   );
 }

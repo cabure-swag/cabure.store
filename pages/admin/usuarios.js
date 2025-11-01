@@ -1,47 +1,44 @@
-// CONTENT-ONLY: sin Topbar/Layout (usa tu layout global)
+// CONTENT-ONLY
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
-export default function AdminUsuariosContent(){
+export default function AdminUsuarios(){
   const [ok, setOk] = useState(false);
   const [users, setUsers] = useState([]);
 
-  useEffect(()=>{ (async () => {
+  useEffect(()=>{ (async ()=>{
     const { data: s } = await supabase.auth.getSession();
     const user = s?.session?.user;
-    if (!user) return;
+    if(!user) return;
     const { data } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
-    if (data?.role === 'admin') setOk(true);
+    if(data?.role==='admin') setOk(true);
   })(); }, []);
 
-  useEffect(()=>{
-    if(!ok) return;
-    (async ()=>{
-      const { data } = await supabase.from('profiles').select('id,email,role').order('email');
-      setUsers(data || []);
-    })();
-  }, [ok]);
+  useEffect(()=>{ if(!ok) return; (async ()=>{
+    const { data } = await supabase.from('profiles').select('id,email,role').order('email');
+    setUsers(data||[]);
+  })(); }, [ok]);
 
   async function setRole(id, role){
     const { error } = await supabase.from('profiles').update({ role }).eq('id', id);
-    if (error) return alert(error.message);
-    setUsers(us => us.map(u => u.id===id ? { ...u, role } : u));
+    if(error) return alert(error.message);
+    setUsers(us=>us.map(u=>u.id===id?{...u,role}:u));
   }
 
-  if (!ok) return <div>No tenés permiso para ver Admin.</div>;
+  if(!ok) return <div>No tenés permiso para ver Admin.</div>;
 
   return (
     <section>
       <h1>Admin — Usuarios</h1>
       <div className="list">
-        {users.map(u => (
+        {users.map(u=>(
           <div key={u.id} className="row item">
             <div>{u.email}</div>
             <div className="row" style={{gap:8}}>
-              <span className="badge">{u.role || 'user'}</span>
-              <button className="btn-ghost" onClick={()=>setRole(u.id, 'user')}>User</button>
-              <button className="btn-ghost" onClick={()=>setRole(u.id, 'vendor')}>Vendor</button>
-              <button className="btn-ghost" onClick={()=>setRole(u.id, 'admin')}>Admin</button>
+              <span className="badge">{u.role||'user'}</span>
+              <button className="btn-ghost" onClick={()=>setRole(u.id,'user')}>User</button>
+              <button className="btn-ghost" onClick={()=>setRole(u.id,'vendor')}>Vendor</button>
+              <button className="btn-ghost" onClick={()=>setRole(u.id,'admin')}>Admin</button>
             </div>
           </div>
         ))}
