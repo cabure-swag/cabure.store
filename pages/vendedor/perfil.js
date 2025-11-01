@@ -1,135 +1,178 @@
 // pages/vendedor/perfil.js
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { pathSafe } from '../../lib/pathSafe';
+
+function uid() {
+  return (globalThis?.crypto?.randomUUID?.() || Math.random().toString(36).slice(2));
+}
 
 export default function VendedorPerfil(){
-  const [me, setMe] = useState(null);
-  const [brands, setBrands] = useState([]);
-  const [brandSlug, setBrandSlug] = useState(null);
+  const [session, setSession] = useState(null);
+  const [myBrands, setMyBrands] = useState([]);
+  const [selectedSlug, setSelectedSlug] = useState('');
+  const [brand, setBrand] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
 
+  // Sesión
   useEffect(() => {
-    (async () => {
-      const { data: s } = await supabase.auth.getSession();
-      const u = s?.session?.user || null;
-      if(!u) return;
-      setMe({ id: u.id, email: u.email });
-
-      const { data: admins } = await supabase.from('admin_emails').select('email').eq('email', u.email);
-      const isAdmin = (admins||[]).length>0;
-
-      let list = [];
-      if (isAdmin) {
-        const { data } = await supabase
-          .from('brands')
-          .select('slug,name,description,instagram,logo_url,cover_url,ship_domicilio,ship_sucursal,ship_free_from')
-          .order('name');
-        list = data || [];
-      } else {
-        const { data } = await supabase
-          .from('vendor_brands')
-          .select('brand_slug, brands!inner(name, description, instagram, logo_url, cover_url, ship_domicilio, ship_sucursal, ship_free_from)')
-          .eq('user_id', u.id);
-        list = (data||[]).map(x => ({ slug: x.brand_slug, ...x.brands }));
-      }
-      setBrands(list);
-      if (list.length) setBrandSlug(list[0].slug);
-    })();
+    supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
   }, []);
 
-  async function saveBrand(e){
-    e.preventDefault();
-    if(!brandSlug) return;
-    setSaving(true);
-    const f = new FormData(e.currentTarget);
-    const description = f.get('description') || null;
-    const instagram = f.get('instagram') || null;
-    const ship_domicilio = f.get('ship_domicilio') === '' ? null : Number(f.get('ship_domicilio'));
-    const ship_sucursal = f.get('ship_sucursal') === '' ? null : Number(f.get('ship_sucursal'));
-    const ship_free_from = Number(f.get('ship_free_from') || 0);
-    const logo = f.get('logo');
-    const cover = f.get('cover');
+  // Marcas (ajustá el filtro a tu esquema si corresponde)
+  useEffect(() => {
+    if(!session) return;
+    (async () => {
+      const { data } = await supabase
+        .from('brands')
+        .select('slug,name,logo_url,cover_url,cover_urls')
+        .order('name', { ascending: true });
+      setMyBrands(data || []);
+      if (!selectedSlug && data?.[0]?.slug) setSelectedSlug(data[0].slug);
+    })();
+  }, [session]);
 
-    const current = brands.find(b => b.slug===brandSlug) || {};
-    let logo_url = current.logo_url || null;
-    if (logo && logo.size>0) {
-      const path = `brands/${brandSlug}/${Date.now()}_${pathSafe(logo.name)}`;
-      const up = await supabase.storage.from('media').upload(path, logo, { contentType: logo.type });
-      if (up.error) { setSaving(false); return alert(up.error.message); }
-      const { data: pub } = await supabase.storage.from('media').getPublicUrl(path);
-      logo_url = pub?.publicUrl || null;
+  // Marca seleccionada
+  useEffect(() => {
+    if(!selectedSlug) { setBrand(null); return; }
+    (async () => {
+      const { data } = await supabase
+        .from('brands')
+        .select('slug,name,logo_url,cover_url,cover_urls')
+        .eq('slug', selectedSlug)
+        .maybeSingle();
+      setBrand(data || null);
+    })();
+  }, [selectedSlug]);
+
+  async function onUploadCovers(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !brand) return;
+
+    setSaving(true); setMsg('Subiendo imágenes...');
+    try {
+      const urls = Array.isArray(brand.cover_urls) ? [...brand.cover_urls] : [];
+      for (const file of files) {
+        const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+        const path = `brands/${brand.slug}/covers/${uid()}.${ext}`;
+        const { error: upErr } = await supabase.storage.from('media').upload(path, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+        if (upErr) throw upErr;
+
+        const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
+        if (pub?.publicUrl) urls.push(pub.publicUrl);
+      }
+      const { error: updb } = await supabase
+        .from('brands')
+        .update({ cover_urls: urls })
+        .eq('slug', brand.slug);
+      if (updb) throw updb;
+
+      setBrand(b => ({ ...b, cover_urls: urls }));
+      setMsg('Portadas actualizadas ✔');
+    } catch (err) {
+      console.error(err);
+      setMsg('Error subiendo imágenes');
+    } finally {
+      setSaving(false);
+      e.target.value = '';
+      setTimeout(()=>setMsg(''), 3000);
     }
-
-    let cover_url = current.cover_url || null;
-    if (cover && cover.size>0) {
-      const path = `brands/${brandSlug}/cover_${Date.now()}_${pathSafe(cover.name)}`;
-      const up = await supabase.storage.from('media').upload(path, cover, { contentType: cover.type });
-      if (up.error) { setSaving(false); return alert(up.error.message); }
-      const { data: pub } = await supabase.storage.from('media').getPublicUrl(path);
-      cover_url = pub?.publicUrl || null;
-    }
-
-    const { error } = await supabase.rpc('vendor_update_brand_public_fields', {
-      p_slug: brandSlug,
-      p_description: description,
-      p_logo_url: logo_url,
-      p_cover_url: cover_url,
-      p_ship_domicilio: ship_domicilio,
-      p_ship_sucursal: ship_sucursal,
-      p_ship_free_from: ship_free_from,
-      p_instagram: instagram
-    });
-
-    setSaving(false);
-    if (error) return alert(error.message);
-    alert('Marca actualizada');
   }
 
-  if(!me) return <main className="container"><div className="small">Cargando…</div></main>;
+  async function removeCover(idx) {
+    if (!brand) return;
+    const urls = Array.isArray(brand.cover_urls) ? [...brand.cover_urls] : [];
+    const [removed] = urls.splice(idx, 1);
+    setSaving(true); setMsg('Eliminando...');
+    try {
+      if (removed?.includes('/storage/v1/object/public/media/')) {
+        const marker = '/object/public/media/';
+        const pos = removed.indexOf(marker);
+        if (pos !== -1) {
+          const key = removed.slice(pos + marker.length);
+          await supabase.storage.from('media').remove([key]);
+        }
+      }
+      const { error } = await supabase
+        .from('brands')
+        .update({ cover_urls: urls })
+        .eq('slug', brand.slug);
+      if (error) throw error;
+      setBrand(b => ({ ...b, cover_urls: urls }));
+      setMsg('Portada eliminada ✔');
+    } catch (err) {
+      console.error(err);
+      setMsg('Error eliminando portada');
+    } finally {
+      setSaving(false);
+      setTimeout(()=>setMsg(''), 3000);
+    }
+  }
 
-  const sel = brands.find(b => b.slug===brandSlug);
+  const list = Array.isArray(brand?.cover_urls) ? brand.cover_urls : [];
 
   return (
-    <main className="container">
-      <h1 className="h1">Vendedor — Perfil de marca</h1>
+    <main>
+      <div className="container">
+        <h1>Vendedor — Perfil & Portadas</h1>
 
-      <div className="card">
-        <label>Elegí marca</label>
-        <select className="input" value={brandSlug || ''} onChange={(e)=>setBrandSlug(e.target.value || null)}>
-          <option value="">Seleccionar</option>
-          {brands.map(b => <option key={b.slug} value={b.slug}>{b.name}</option>)}
-        </select>
-        {!brands.length && <p className="small" style={{ marginTop:8 }}>
-          No tenés marcas asignadas. Pedile al Admin que te asigne una.
-        </p>}
+        {!session ? (
+          <div className="card">Iniciá sesión con Google.</div>
+        ) : (
+          <>
+            <div className="card">
+              <label className="lbl">Marca</label>
+              <select
+                value={selectedSlug}
+                onChange={e=>setSelectedSlug(e.target.value)}
+              >
+                {myBrands.map(b => <option key={b.slug} value={b.slug}>{b.name}</option>)}
+              </select>
+            </div>
+
+            {brand && (
+              <div className="card">
+                <div className="row" style={{ alignItems:'center', gap:12 }}>
+                  <div>
+                    <div className="small" style={{opacity:.8}}>Portadas actuales ({list.length})</div>
+                    <div className="thumbs">
+                      {list.map((u, i) => (
+                        <div key={i} className="thumb">
+                          <img src={u} alt={`cover-${i}`} />
+                          <button className="btn-ghost" onClick={()=>removeCover(i)} disabled={saving}>Eliminar</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt">
+                  <label className="lbl">Agregar nuevas portadas (podés subir varias):</label>
+                  <input type="file" multiple accept="image/*" onChange={onUploadCovers} disabled={saving}/>
+                  <div className="small" style={{opacity:.8, marginTop:6}}>
+                    Se mostrarán rotando cada 10 segundos en la portada de la marca (si hay 2 o más).
+                  </div>
+                </div>
+
+                {msg && <div className="small" style={{marginTop:10}}>{msg}</div>}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {brandSlug && (
-        <form onSubmit={saveBrand} className="card grid" style={{ gridTemplateColumns:'1fr 1fr' }}>
-          <div style={{ gridColumn:'1/-1' }}>
-            <label>Descripción</label>
-            <textarea className="input" name="description" rows="3" defaultValue={sel?.description || ''} />
-          </div>
-
-          <div><label>Instagram (URL o @handle)</label><input className="input" name="instagram" defaultValue={sel?.instagram || ''} /></div>
-          <div />
-
-          <div><label>Logo</label><input className="input" type="file" name="logo" accept="image/*" /></div>
-          <div><label>Portada</label><input className="input" type="file" name="cover" accept="image/*" /></div>
-
-          <div><label>Envío a domicilio (ARS)</label><input className="input" type="number" name="ship_domicilio"
-            defaultValue={sel?.ship_domicilio ?? ''} placeholder="vacío = desactivado" /></div>
-          <div><label>Envío a sucursal (ARS)</label><input className="input" type="number" name="ship_sucursal"
-            defaultValue={sel?.ship_sucursal ?? ''} placeholder="vacío = desactivado" /></div>
-          <div><label>Gratis desde (ARS)</label><input className="input" type="number" name="ship_free_from"
-            defaultValue={sel?.ship_free_from || 0} /></div>
-
-          <div style={{ gridColumn:'1/-1' }}>
-            <button className="btn" disabled={saving}>{saving?'Guardando…':'Guardar marca'}</button>
-          </div>
-        </form>
-      )}
+      <style jsx>{`
+        .lbl{ display:block; margin-bottom:6px; font-weight:600; }
+        select{ background:#0f1118; border:1px solid var(--line); border-radius:10px; padding:8px 10px; color:var(--text); }
+        .thumbs{ display:flex; flex-wrap:wrap; gap:12px; margin-top:8px; }
+        .thumb{ width:160px; }
+        .thumb img{ width:100%; height:100px; object-fit:cover; border-radius:10px; border:1px solid var(--line); }
+      `}</style>
     </main>
   );
 }
