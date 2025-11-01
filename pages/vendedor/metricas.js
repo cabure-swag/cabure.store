@@ -1,96 +1,90 @@
 // pages/vendedor/metricas.js
-import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../../lib/supabaseClient';
+import { useEffect, useMemo, useState } from 'react'
+import { supabase } from '../../lib/supabaseClient'
+import { requireVendorOrAdmin } from '../../lib/guards'
 
-export default function VendedorMetricas(){
-  const [brands, setBrands] = useState([]);
-  const [brand, setBrand] = useState(null);
-  const [orders, setOrders] = useState([]);
 
-  useEffect(() => {
-    (async () => {
-      const { data: s } = await supabase.auth.getSession();
-      const u = s?.session?.user;
-      if (!u) return;
+function money(n){
+const v = Number(n||0)
+return v.toLocaleString('es-AR', { style:'currency', currency:'ARS', maximumFractionDigits:0 })
+}
 
-      const { data: admins } = await supabase.from('admin_emails').select('email').eq('email', u.email);
-      const isAdmin = (admins||[]).length>0;
-      let bs = [];
-      if (isAdmin) {
-        const { data } = await supabase.from('brands').select('slug,name').order('name');
-        bs = data || [];
-      } else {
-        const { data } = await supabase
-          .from('vendor_brands')
-          .select('brand_slug, brands!inner(name)')
-          .eq('user_id', u.id);
-        bs = (data || []).map(x => ({ slug: x.brand_slug, name: x.brands.name }));
-      }
-      setBrands(bs);
-      if (bs.length) setBrand(bs[0].slug);
-    })();
-  }, []);
 
-  useEffect(() => {
-    if(!brand) return;
-    (async () => {
-      const { data } = await supabase
-        .from('orders')
-        .select('id, brand_slug, total, status, created_at')
-        .eq('brand_slug', brand)
-        .order('created_at', { ascending: false })
-        .limit(200);
-      setOrders(data || []);
-    })();
-  }, [brand]);
+export default function VendorMetrics({ isAdmin, vendorBrands }){
+const [orders, setOrders] = useState([])
+const [loading, setLoading] = useState(true)
+const [error, setError] = useState(null)
 
-  const kpi = useMemo(() => {
-    const now = new Date();
-    const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    const ofMonth = orders.filter(o => o.created_at?.startsWith(ym) && o.status === 'paid');
-    const totalMonth = ofMonth.reduce((s,o)=>s+(o.total||0),0);
-    const totalAll = orders.filter(o=>o.status==='paid').reduce((s,o)=>s+(o.total||0),0);
-    const countPaid = orders.filter(o=>o.status==='paid').length;
-    const avg = countPaid ? Math.round(totalAll / countPaid) : 0;
-    return { totalMonth, totalAll, avg, countPaid };
-  }, [orders]);
 
-  return (
-    <main className="container">
-      <h1 className="h1">Vendedor — Métricas</h1>
+useEffect(() => {
+(async () => {
+try {
+setLoading(true)
+let q = supabase.from('orders').select('*').order('created_at', { ascending:false }).limit(200)
+if (!isAdmin) q = q.in('brand_slug', vendorBrands || [])
+const { data, error } = await q
+if (error) throw error
+setOrders(data || [])
+} catch (e) {
+setError(e.message)
+} finally {
+setLoading(false)
+}
+})()
+}, [isAdmin, vendorBrands])
 
-      <div className="card">
-        <label>Marca</label>
-        <select className="input" value={brand || ''} onChange={e=>setBrand(e.target.value || null)}>
-          <option value="">Elegí una marca</option>
-          {brands.map(b => <option key={b.slug} value={b.slug}>{b.name}</option>)}
-        </select>
-      </div>
 
-      <div className="grid" style={{ gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))', gap:12 }}>
-        <div className="kpi"><div className="small">Ventas del mes</div><div className="big">${kpi.totalMonth}</div></div>
-        <div className="kpi"><div className="small">Ventas históricas</div><div className="big">${kpi.totalAll}</div></div>
-        <div className="kpi"><div className="small">Pedidos pagados</div><div className="big">{kpi.countPaid}</div></div>
-        <div className="kpi"><div className="small">Ticket promedio</div><div className="big">${kpi.avg}</div></div>
-      </div>
+const kpis = useMemo(() => {
+const total = orders.reduce((acc,o)=> acc + Number(o.total||0), 0)
+const count = orders.length
+const avg = count ? total / count : 0
+return { total, count, avg }
+}, [orders])
 
-      <div className="card" style={{ marginTop:14 }}>
-        <strong>Últimos pedidos</strong>
-        <table className="table" style={{ marginTop:10 }}>
-          <thead><tr><th>ID</th><th>Fecha</th><th>Estado</th><th>Total</th></tr></thead>
-          <tbody>
-            {orders.map(o=>(
-              <tr key={o.id}>
-                <td>{o.id}</td>
-                <td>{new Date(o.created_at).toLocaleString()}</td>
-                <td>{o.status}</td>
-                <td>${o.total}</td>
-              </tr>
-            ))}
-            {orders.length===0 && <tr><td colSpan="4" className="small">Sin pedidos todavía.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </main>
-  );
+
+return (
+<main className="container" style={{padding:'24px',maxWidth:980,margin:'0 auto'}}>
+<h1>Vendedor · Métricas {isAdmin ? '(todas las marcas)' : ''}</h1>
+{loading && <p>Cargando…</p>}
+{error && <p style={{color:'#f88'}}>Error: {error}</p>}
+
+
+<section className="grid" style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16,marginTop:12}}>
+<div className="card"><div className="h2">Ventas</div><div className="big">{money(kpis.total)}</div></div>
+<div className="card"><div className="h2">Pedidos</div><div className="big">{kpis.count}</div></div>
+<div className="card"><div className="h2">Ticket prom.</div><div className="big">{money(kpis.avg)}</div></div>
+</section>
+
+
+<section style={{marginTop:24}}>
+<h2>Últimos pedidos</h2>
+<div className="list" style={{display:'grid',gap:8}}>
+{orders.map(o => (
+<div key={o.id} className="row card" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12,padding:12}}>
+<div><strong>#{String(o.id).slice(0,8)}</strong></div>
+<div>{new Date(o.created_at).toLocaleString('es-AR')}</div>
+<div>{o.brand_slug}</div>
+<div style={{textAlign:'right'}}>{money(o.total)}</div>
+</div>
+))}
+{(!loading && !orders.length) && <p>No hay pedidos.</p>}
+</div>
+</section>
+
+
+<style jsx>{`
+.card{border:1px solid #222;border-radius:12px;background:#0b1220}
+.h2{font-weight:600;margin-bottom:6px}
+.big{font-size:22px}
+`}</style>
+</main>
+)
+}
+
+
+export async function getServerSideProps(ctx) {
+const gate = await requireVendorOrAdmin(ctx)
+if (gate.redirect) return gate
+const { isAdmin, vendorBrands } = gate
+return { props: { isAdmin, vendorBrands } }
 }
