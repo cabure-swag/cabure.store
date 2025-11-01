@@ -2,57 +2,51 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 /**
- * RotatingCover
- * - Recibe `images` (array de URLs) y rota cada `intervalMs` (default 10000ms).
- * - Transición suave crossfade. Pausa al pasar el mouse (hover).
- * - Modo "contain" u "cover" con prop objectFit (default 'cover').
+ * Rotación de imágenes con crossfade (por defecto, cada 10s).
+ * Pausa en hover. No bloquea si no hay imágenes (muestra fondo oscuro).
  *
  * Props:
- *  - images: string[]
+ *  - images: string[] (URLs públicas)
  *  - alt: string
- *  - className: string
- *  - style: object
  *  - intervalMs: number (default 10000)
- *  - objectFit: 'cover' | 'contain'
- *  - borderRadius: string (ej: '12px')
+ *  - className, style, objectFit ('cover'|'contain')
  */
 export default function RotatingCover({
   images = [],
   alt = '',
+  intervalMs = 10000,
   className = '',
   style = {},
-  intervalMs = 10000,
   objectFit = 'cover',
-  borderRadius = undefined,
 }) {
-  const list = useMemo(() => (Array.isArray(images) && images.length ? images : []), [images]);
+  const list = useMemo(
+    () => (Array.isArray(images) ? images.filter(Boolean) : []),
+    [images]
+  );
   const [idx, setIdx] = useState(0);
   const [paused, setPaused] = useState(false);
   const timerRef = useRef(null);
 
   useEffect(() => {
     if (!list.length) return;
-    timerRef.current && clearInterval(timerRef.current);
+    clearInterval(timerRef.current);
     if (!paused) {
-      timerRef.current = setInterval(() => {
-        setIdx(i => (i + 1) % list.length);
-      }, intervalMs);
+      timerRef.current = setInterval(
+        () => setIdx((i) => (i + 1) % list.length),
+        intervalMs
+      );
     }
-    return () => timerRef.current && clearInterval(timerRef.current);
+    return () => clearInterval(timerRef.current);
   }, [list, paused, intervalMs]);
 
   if (!list.length) {
-    return (
-      <div className={className} style={{ ...style, background: '#0e0f16', borderRadius }}>
-        {/* sin imágenes, el contenedor queda oscuro */}
-      </div>
-    );
+    return <div className={className} style={{ ...style, background: '#0e0f16' }} />;
   }
 
   return (
     <div
       className={`rc-wrap ${className}`}
-      style={{ ...style, position: 'relative', overflow: 'hidden', borderRadius }}
+      style={{ ...style, position: 'relative', overflow: 'hidden' }}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
@@ -61,7 +55,6 @@ export default function RotatingCover({
           key={`${src}-${i}`}
           src={src}
           alt={alt}
-          className={`rc-img ${i === idx ? 'on' : ''}`}
           style={{
             position: 'absolute',
             inset: 0,
@@ -75,10 +68,6 @@ export default function RotatingCover({
           loading={i === 0 ? 'eager' : 'lazy'}
         />
       ))}
-      <style jsx>{`
-        .rc-wrap { background: #0e0f16; }
-        .rc-img { backface-visibility: hidden; }
-      `}</style>
     </div>
   );
 }
