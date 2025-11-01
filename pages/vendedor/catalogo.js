@@ -1,178 +1,130 @@
-// pages/vendedor/catalogo.js
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import ImageUploader from '../../components/ImageUploader';
+
+async function fetchRole() {
+  const { data: s } = await supabase.auth.getSession();
+  const user = s?.session?.user;
+  if (!user) return { user: null, role: null };
+  const { data } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
+  return { user, role: data?.role || 'user' };
+}
+async function fetchBrandsForUser({ user, role }) {
+  if (role === 'admin') {
+    const { data } = await supabase.from('brands').select('slug,name').order('name');
+    return data || [];
+  }
+  const { data: assigned, error: eAssign } = await supabase.from('brands_vendors').select('brand_slug').eq('user_id', user.id);
+  if (!eAssign && Array.isArray(assigned) && assigned.length){
+    const slugs = assigned.map(x=>x.brand_slug);
+    const { data } = await supabase.from('brands').select('slug,name').in('slug', slugs).order('name');
+    return data || [];
+  }
+  const { data } = await supabase.from('brands').select('slug,name').order('name');
+  return data || [];
+}
 
 export default function VendedorCatalogo(){
-  const [brands, setBrands] = useState([]);
-  const [selBrand, setSelBrand] = useState('');
-  const [name, setName] = useState('');
-  const [price, setPrice] = useState('');
-  const [stock, setStock] = useState(1);
-  const [desc, setDesc] = useState('');
-  const [imgs, setImgs] = useState([]); // [{url}]
-  const [saving, setSaving] = useState(false);
+  const [session, setSession] = useState(null);
+  const [role, setRole] = useState(null);
+  const [myBrands, setMyBrands] = useState([]);
+  const [slug, setSlug] = useState('');
   const [products, setProducts] = useState([]);
 
-  // Cargar marcas donde soy vendor
   useEffect(() => {
-    (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const u = session?.user;
-      if(!u) return;
-
-      const { data: vb } = await supabase
-        .from('vendor_brands')
-        .select('brand_slug')
-        .eq('user_id', u.id);
-
-      const slugs = (vb || []).map(v => v.brand_slug);
-      if(!slugs.length) return;
-
-      const { data: bs } = await supabase
-        .from('brands')
-        .select('slug,name')
-        .in('slug', slugs)
-        .order('name', { ascending:true });
-
-      setBrands(bs || []);
-      if (bs?.length && !selBrand) setSelBrand(bs[0].slug);
-    })();
+    supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Cargar productos de la marca seleccionada
   useEffect(() => {
+    if (!session) return;
+    let active = true;
     (async () => {
-      if(!selBrand) { setProducts([]); return; }
-      const { data: prods } = await supabase
-        .from('products')
-        .select('id, name, price, stock, image_url, created_at')
-        .eq('brand_slug', selBrand)
-        .order('created_at', { ascending:false });
-      setProducts(prods || []);
+      const { user, role } = await fetchRole();
+      if (!active) return;
+      setRole(role);
+      const list = await fetchBrandsForUser({ user, role });
+      if (!active) return;
+      setMyBrands(list);
+      if (!slug && list?.[0]?.slug) setSlug(list[0].slug);
     })();
-  }, [selBrand]);
+    return () => { active = false; };
+  }, [session]);
 
-  const valid = useMemo(() => {
-    return selBrand && name.trim().length>0 && Number(price) > 0 && Number(stock) >= 1 && imgs.length>=1;
-  }, [selBrand, name, price, stock, imgs]);
-
-  async function crearProducto(e){
-    e.preventDefault();
-    if (!valid) { alert('Completá todos los campos y subí al menos 1 imagen.'); return; }
-    try{
-      setSaving(true);
-      // 1) Crear product base (principal = imgs[0])
-      const { data: ins, error } = await supabase.from('products').insert({
-        brand_slug: selBrand,
-        name: name.trim(),
-        description: (desc || '').trim() || null,
-        price: Number(price),
-        stock: Number(stock),
-        image_url: imgs[0]?.url || null, // compatibilidad para la “principal”
-      }).select('id').single();
-      if (error) throw error;
-
-      // 2) Guardar hasta 5 imágenes en product_images
-      const rows = imgs.slice(0,5).map((im,idx)=>({
-        product_id: ins.id,
-        url: im.url,
-        position: idx
-      }));
-      if (rows.length){
-        const { error: e2 } = await supabase.from('product_images').insert(rows);
-        if (e2) throw e2;
-      }
-
-      // 3) Reset + recarga lista
-      setName(''); setPrice(''); setStock(1); setDesc(''); setImgs([]);
-      const { data: prods } = await supabase
+  useEffect(() => {
+    if (!slug) { setProducts([]); return; }
+    let active = true;
+    (async () => {
+      const { data, error } = await supabase
         .from('products')
-        .select('id, name, price, stock, image_url, created_at')
-        .eq('brand_slug', selBrand)
-        .order('created_at', { ascending:false });
-      setProducts(prods || []);
-      alert('Producto creado');
-    }catch(err){
-      alert('Error creando producto: ' + (err?.message || err));
-    }finally{
-      setSaving(false);
-    }
-  }
+        .select('id,name,price,stock')
+        .eq('brand_slug', slug)
+        .order('created_at', { ascending: false });
+      if (!active) return;
+      if (error) { setProducts([]); return; }
+      setProducts(data || []);
+    })();
+    return () => { active = false; };
+  }, [slug]);
 
   return (
-    <main className="container">
-      <h1 className="h1">Vendedor · Catálogo</h1>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="row" style={{ alignItems:'center', gap:10 }}>
-          <div className="small">Marca</div>
-          <select className="input" value={selBrand} onChange={e=>setSelBrand(e.target.value)} style={{ maxWidth: 260 }}>
-            <option value="">Elegí tu marca…</option>
-            {brands.map(b => <option key={b.slug} value={b.slug}>{b.name}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <div className="grid" style={{ gridTemplateColumns:'1.1fr .9fr', gap: 16 }}>
-        <div className="card">
-          <strong>Crear producto</strong>
-          <form onSubmit={crearProducto} className="col" style={{ gap: 10, marginTop:10 }}>
-            <label className="col">
-              <span>Nombre</span>
-              <input className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="Ej. Remera Oversize" />
-            </label>
-
-            <div className="row" style={{ gap:10 }}>
-              <label className="col">
-                <span>Precio</span>
-                <input className="input" value={price} onChange={e=>setPrice(e.target.value)} inputMode="decimal" placeholder="Ej. 19999" />
-              </label>
-              <label className="col" style={{ maxWidth: 160 }}>
-                <span>Stock</span>
-                <input className="input" value={stock} onChange={e=>setStock(e.target.value)} inputMode="numeric" placeholder="Ej. 1" />
-              </label>
+    <main>
+      <div className="container">
+        <h1>Vendedor — Catálogo</h1>
+        {!session ? (
+          <div className="card">Iniciá sesión con Google.</div>
+        ) : (
+          <>
+            <div className="card">
+              <label className="lbl">Marca</label>
+              <select value={slug} onChange={e=>setSlug(e.target.value)}>
+                {(myBrands||[]).map(b => <option key={b.slug} value={b.slug}>{b.name}</option>)}
+              </select>
             </div>
 
-            <label className="col">
-              <span>Descripción</span>
-              <textarea className="input" value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Detalles, talles, materiales…" rows={3} />
-            </label>
-
-            <div className="col" style={{ gap:6 }}>
-              <span>Imágenes (arrastrá o hacé click) — máx 5 · la primera queda como principal</span>
-              <ImageUploader
-                brandSlug={selBrand || 'sin-marca'}
-                productId={'tmp-'+Date.now()}
-                initial={[]}
-                max={5}
-                onChange={setImgs}
-              />
-            </div>
-
-            <div><button className="btn" disabled={!valid || saving}>{saving ? 'Guardando…' : 'Crear producto'}</button></div>
-          </form>
-        </div>
-
-        <div className="card">
-          <strong>Productos existentes</strong>
-          <div style={{ marginTop: 10 }}>
-            {products.map(p => (
-              <div key={p.id} className="row" style={{ alignItems:'center', justifyContent:'space-between', borderBottom:'1px solid var(--line)', padding:'8px 0' }}>
-                <div className="row" style={{ gap:10, alignItems:'center' }}>
-                  <img src={p.image_url || '/logo.png'} alt={p.name} style={{ width:48, height:48, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)' }} />
-                  <div>
-                    <div>{p.name}</div>
-                    <div className="small" style={{ color:'var(--muted)' }}>${p.price} · stock {p.stock}</div>
-                  </div>
-                </div>
-                <a className="btn-ghost" href={`/vendedor/producto/${p.id}`}>Editar</a>
+            <div className="card">
+              <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
+                <strong>Productos ({products.length})</strong>
+                <button className="btn">+ Nuevo producto</button>
               </div>
-            ))}
-            {products.length===0 && <div className="small">Aún no cargaste productos.</div>}
-          </div>
-        </div>
+              <div className="mt list">
+                {products.map(p => (
+                  <div key={p.id} className="row item">
+                    <div>
+                      <div>{p.name}</div>
+                      <div className="small" style={{opacity:.8}}>Stock: {p.stock} · ${p.price}</div>
+                    </div>
+                    <div className="row" style={{gap:8}}>
+                      <button className="btn-ghost">Editar</button>
+                      <button className="btn-ghost">Eliminar</button>
+                    </div>
+                  </div>
+                ))}
+                {products.length===0 && <div className="small">No hay productos aún.</div>}
+              </div>
+            </div>
+          </>
+        )}
       </div>
+      <style jsx>{`
+        .lbl{ display:block; margin-bottom:6px; font-weight:600; }
+        select{ background:#0f1118; border:1px solid var(--line); border-radius:10px; padding:8px 10px; color:var(--text); }
+        .list{ display:flex; flex-direction:column; gap:10px; }
+        .item{
+          border:1px solid var(--line);
+          border-radius:10px; padding:10px;
+          display:flex; align-items:center; justify-content:space-between;
+          background:#0e0f16;
+        }
+        .btn{
+          padding:6px 12px; border-radius:10px; background:#7c3aed;
+          color:#fff; border:0; cursor:pointer;
+        }
+        .btn-ghost{
+          padding:6px 10px; border-radius:8px; background:none;
+          border:1px solid var(--line); color:var(--text); cursor:pointer;
+        }
+      `}</style>
     </main>
   );
 }
