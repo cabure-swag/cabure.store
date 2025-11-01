@@ -1,13 +1,4 @@
 // pages/vendedor/catalogo.js
-
-
-async function loadBrands(){
-let q = supabase.from('brands').select('slug,name').order('name')
-if (!isAdmin) q = q.in('slug', vendorBrands||[])
-const { data, error } = await q
-if (error) return setError(error.message)
-setBrands(data||[])
-if (data?.length) setSelBrand(prev => prev || data[0].slug)
 }
 
 
