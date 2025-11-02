@@ -3,13 +3,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
 
+// Utilidades
+const money = (n) => {
+  try { return n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }); }
+  catch { return `$${n}`; }
+};
+
 function parseCart(slug) {
   try {
     const raw = localStorage.getItem(`cart:${slug}`);
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
-    // Normalizar: cada item debería tener {id, name, price, qty}
     return arr
       .filter(x => x && typeof x === 'object')
       .map(x => ({
@@ -24,88 +29,84 @@ function parseCart(slug) {
   }
 }
 
-function money(n) {
-  try { return n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }); }
-  catch { return `$${n}`; }
-}
-
 export default function Checkout() {
   const router = useRouter();
   const slug = router.query.brandSlug;
 
+  // Datos de marca para costos
   const [brand, setBrand] = useState(null);
+  const [loadingBrand, setLoadingBrand] = useState(true);
+  const [err, setErr] = useState('');
+
+  // Carrito
   const [cart, setCart] = useState([]);
 
-  // estados de forma
-  const [shipping, setShipping] = useState(''); // 'domicilio' | 'sucursal'
-  const [pay, setPay] = useState('mp');        // 'mp' | 'transferencia'
+  // Selecciones
+  const [shipping, setShipping] = useState('');   // 'domicilio' | 'sucursal'
+  const [pay, setPay] = useState('mp');          // 'mp' | 'transferencia'
 
-  // datos comunes
+  // Datos comunes
   const [shipName, setShipName] = useState('');
-  const [shipDni, setShipDni] = useState('');
   const [shipPhone, setShipPhone] = useState('');
 
-  // domicilio
+  // DNI (solo transferencia)
+  const [shipDni, setShipDni] = useState('');
+
+  // Domicilio (solo si shipping === 'domicilio')
   const [street, setStreet] = useState('');
   const [number, setNumber] = useState('');
-  const [floor, setFloor] = useState('');
-  const [apartment, setApartment] = useState('');
+  const [floor, setFloor] = useState('');        // opcional
+  const [apartment, setApartment] = useState('');// opcional
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
 
-  // sucursal
-  const [branchId, setBranchId] = useState('');
-  const [branchName, setBranchName] = useState('');
-  const [branchAddress, setBranchAddress] = useState('');
-  const [branchCity, setBranchCity] = useState('');
-  const [branchState, setBranchState] = useState('');
-  const [branchZip, setBranchZip] = useState('');
+  // Sucursal (solo si shipping === 'sucursal')
+  const [branchId, setBranchId] = useState(''); // requerido (por ahora texto, futuro: selector)
 
-  // ui
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
 
   useEffect(() => {
     if (!slug) return;
-    // cargar marca
+    setLoadingBrand(true);
     supabase.from('brands')
       .select('slug, name, ship_domicilio, ship_sucursal, ship_free_from, mp_fee')
       .eq('slug', slug)
       .single()
       .then(({ data, error }) => {
-        if (error) return setErr('No se pudo cargar la marca');
+        if (error) setErr('No se pudo cargar la marca');
         setBrand(data || null);
+        setLoadingBrand(false);
       });
-
-    // cargar carrito
     setCart(parseCart(slug));
   }, [slug]);
 
-  const subtotal = useMemo(() => {
-    return cart.reduce((acc, it) => acc + (it.price * it.qty), 0);
-  }, [cart]);
+  const subtotal = useMemo(
+    () => cart.reduce((acc, it) => acc + (it.price * it.qty), 0),
+    [cart]
+  );
 
   const mpPercent = Number.isFinite(brand?.mp_fee) ? Number(brand.mp_fee) : 10;
   const canDomicilio = Number.isFinite(brand?.ship_domicilio);
   const canSucursal = Number.isFinite(brand?.ship_sucursal);
-  const shipPrice = shipping === 'domicilio'
+
+  const baseShipPrice = shipping === 'domicilio'
     ? (brand?.ship_domicilio || 0)
     : shipping === 'sucursal'
     ? (brand?.ship_sucursal || 0)
     : 0;
 
   const shipFreeFrom = Number(brand?.ship_free_from || 0);
-  const shipCost = (shipFreeFrom > 0 && subtotal >= shipFreeFrom) ? 0 : shipPrice;
+  const shipCost = (shipFreeFrom > 0 && subtotal >= shipFreeFrom) ? 0 : baseShipPrice;
+
   const mpFee = pay === 'mp' ? Math.round(subtotal * (mpPercent / 100)) : 0;
   const total = subtotal + shipCost + mpFee;
 
+  // Validación contextual mínima
   function validate() {
     if (cart.length === 0) return 'Tu carrito está vacío';
     if (!shipping) return 'Elegí el tipo de envío';
-
     if (!shipName?.trim()) return 'Ingresá tu nombre';
-    if (!shipDni?.trim()) return 'Ingresá tu DNI';
     if (!shipPhone?.trim()) return 'Ingresá un teléfono de contacto';
 
     if (shipping === 'domicilio') {
@@ -116,18 +117,11 @@ export default function Checkout() {
       if (!zip?.trim()) return 'Ingresá el código postal';
     }
     if (shipping === 'sucursal') {
-      if (!branchId?.trim()) return 'Elegí una sucursal (ID)';
-      if (!branchName?.trim()) return 'Ingresá el nombre de la sucursal';
-      if (!branchAddress?.trim()) return 'Ingresá la dirección de la sucursal';
-      if (!branchCity?.trim()) return 'Ingresá la ciudad de la sucursal';
-      if (!branchState?.trim()) return 'Ingresá la provincia de la sucursal';
-      if (!branchZip?.trim()) return 'Ingresá el CP de la sucursal';
+      if (!branchId?.trim()) return 'Ingresá el ID de la sucursal a retirar';
     }
-
     if (pay === 'transferencia') {
       if (!shipDni?.trim()) return 'Para transferencia, el DNI es obligatorio';
     }
-
     return null;
   }
 
@@ -138,24 +132,23 @@ export default function Checkout() {
 
     try {
       setBusy(true);
-      // usuario actual
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user;
       if (!user) {
-        // si no hay sesión, volver a home con next
         location.href = `/?next=${encodeURIComponent(router.asPath)}`;
         return;
       }
 
-      // payload base
+      // Build payload con datos mínimos necesarios según selección
       const payload = {
         user_id: user.id,
         brand_slug: slug,
         shipping,
         pay,
         ship_name: shipName,
-        ship_dni: shipDni,
         ship_phone: shipPhone,
+        // DNI solo si transferencia; si no, lo dejamos vacío
+        ship_dni: pay === 'transferencia' ? shipDni : null,
         subtotal,
         mp_fee_pct: mpPercent,
         total,
@@ -166,8 +159,8 @@ export default function Checkout() {
         Object.assign(payload, {
           ship_street: street,
           ship_number: number,
-          ship_floor: floor,
-          ship_apartment: apartment,
+          ship_floor: floor || null,
+          ship_apartment: apartment || null,
           ship_city: city,
           ship_state: state,
           ship_zip: zip,
@@ -175,26 +168,24 @@ export default function Checkout() {
       } else if (shipping === 'sucursal') {
         Object.assign(payload, {
           branch_id: branchId,
-          branch_name: branchName,
-          branch_address: branchAddress,
-          branch_city: branchCity,
-          branch_state: branchState,
-          branch_zip: branchZip,
+          // Estos campos de sucursal quedan opcionales / null hasta integrar buscador de sucursales
+          branch_name: null,
+          branch_address: null,
+          branch_city: null,
+          branch_state: null,
+          branch_zip: null,
         });
       }
 
-      // crear orden
+      // Insertar orden
       const { data: order, error: e1 } = await supabase
         .from('orders')
         .insert(payload)
         .select('*')
         .single();
-
       if (e1) throw e1;
 
-      // TODO: opcional – persistir líneas del carrito en otra tabla si corresponde (no la tocamos en esta iteración)
-
-      // si es MP, crear preferencia y redirigir
+      // MP → crear preferencia
       if (pay === 'mp') {
         const r = await fetch('/api/mp/create-preference', {
           method: 'POST',
@@ -217,13 +208,12 @@ export default function Checkout() {
         if (!r.ok) throw new Error(j?.error || 'No se pudo crear la preferencia de MP');
         const initPoint = j?.init_point || j?.sandbox_init_point;
         if (!initPoint) throw new Error('MP no devolvió init_point');
-        // limpiar carrito solo cuando redirijamos
         try { localStorage.removeItem(`cart:${slug}`); } catch {}
         location.href = initPoint;
         return;
       }
 
-      // transferencia: dejamos en pending y llevamos a compras
+      // Transferencia → pendiente y a /compras (adjuntos por chat en iteración de “comprobantes”)
       try { localStorage.removeItem(`cart:${slug}`); } catch {}
       router.replace('/compras');
     } catch (e) {
@@ -233,194 +223,281 @@ export default function Checkout() {
     }
   }
 
-  if (!slug) return null;
-
+  // ---------- UI moderna (Tailwind) ----------
   return (
-    <main className="container" style={{ maxWidth: 1000, margin: '0 auto', padding: 16 }}>
-      <h1 className="h1">Checkout</h1>
+    <main className="mx-auto max-w-6xl px-4 py-8">
+      <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white/90">
+        Finalizar compra
+      </h1>
 
-      {!brand && <p>Cargando marca…</p>}
+      {loadingBrand && (
+        <p className="mt-6 text-sm text-white/60">Cargando datos de la marca…</p>
+      )}
+
+      {err && (
+        <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {err}
+        </div>
+      )}
+
       {brand && (
-        <div className="grid" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 24 }}>
-          {/* Columna izquierda: formulario */}
-          <div>
-            <section className="card" style={{ padding: 16, border: '1px solid var(--line)', borderRadius: 12 }}>
-              <h2 className="h2">Datos de envío</h2>
+        <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-[1fr_380px]">
+          {/* Formulario */}
+          <section className="rounded-2xl border border-white/10 bg-[#0f1118] p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,.35)]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white/90">Datos de envío</h2>
+              <span className="text-xs px-2 py-1 rounded-full border border-white/10 text-white/60">
+                {brand.name}
+              </span>
+            </div>
 
-              <div className="mt">
-                <label className="lbl">Nombre y apellido</label>
-                <input className="inp" value={shipName} onChange={e=>setShipName(e.target.value)} placeholder="Tu nombre" />
+            {/* Nombre / Teléfono */}
+            <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-white/70 mb-1">Nombre y apellido</label>
+                <input
+                  className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                  value={shipName}
+                  onChange={e=>setShipName(e.target.value)}
+                  placeholder="Tu nombre"
+                />
               </div>
-
-              <div className="row2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div className="mt">
-                  <label className="lbl">DNI</label>
-                  <input className="inp" value={shipDni} onChange={e=>setShipDni(e.target.value)} placeholder="Ej: 30123456" />
-                </div>
-                <div className="mt">
-                  <label className="lbl">Teléfono</label>
-                  <input className="inp" value={shipPhone} onChange={e=>setShipPhone(e.target.value)} placeholder="Ej: +54 9 388 ..." />
-                </div>
+              <div>
+                <label className="block text-sm text-white/70 mb-1">Teléfono</label>
+                <input
+                  className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                  value={shipPhone}
+                  onChange={e=>setShipPhone(e.target.value)}
+                  placeholder="Ej: +54 9 388 ..."
+                />
               </div>
+            </div>
 
-              <div className="mt">
-                <div className="lbl">Tipo de envío</div>
-                <div className="row" style={{ display:'flex', gap:12 }}>
-                  {canDomicilio && (
-                    <label className="radio">
-                      <input type="radio" name="shipping" value="domicilio"
-                             checked={shipping==='domicilio'}
-                             onChange={()=>setShipping('domicilio')} />
-                      <span>Correo Argentino a domicilio {brand?.ship_domicilio>0?`(+ ${brand.ship_domicilio})`:''}</span>
-                    </label>
-                  )}
-                  {canSucursal && (
-                    <label className="radio">
-                      <input type="radio" name="shipping" value="sucursal"
-                             checked={shipping==='sucursal'}
-                             onChange={()=>setShipping('sucursal')} />
-                      <span>Retiro en sucursal {brand?.ship_sucursal>0?`(+ ${brand.ship_sucursal})`:''}</span>
-                    </label>
-                  )}
-                </div>
-                {shipFreeFrom>0 && (
-                  <p className="muted">Envío gratis desde {money(shipFreeFrom)}.</p>
+            {/* Tipo de envío */}
+            <div className="mt-5">
+              <label className="block text-sm text-white/70 mb-2">Tipo de envío</label>
+              <div className="flex flex-wrap gap-3">
+                {canDomicilio && (
+                  <button
+                    type="button"
+                    onClick={()=>setShipping('domicilio')}
+                    className={`rounded-xl border px-3 py-2 text-sm transition
+                      ${shipping==='domicilio'
+                        ? 'border-indigo-400/50 bg-indigo-500/10 text-indigo-200'
+                        : 'border-white/10 bg-[#0b0d14] text-white/80 hover:border-white/20'}`}
+                  >
+                    Domicilio {brand.ship_domicilio>0 && <span className="text-white/50">(+ {money(brand.ship_domicilio)})</span>}
+                  </button>
+                )}
+                {canSucursal && (
+                  <button
+                    type="button"
+                    onClick={()=>setShipping('sucursal')}
+                    className={`rounded-xl border px-3 py-2 text-sm transition
+                      ${shipping==='sucursal'
+                        ? 'border-indigo-400/50 bg-indigo-500/10 text-indigo-200'
+                        : 'border-white/10 bg-[#0b0d14] text-white/80 hover:border-white/20'}`}
+                  >
+                    Retiro en sucursal {brand.ship_sucursal>0 && <span className="text-white/50">(+ {money(brand.ship_sucursal)})</span>}
+                  </button>
                 )}
               </div>
-
-              {shipping === 'domicilio' && (
-                <div className="mt">
-                  <div className="row2" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
-                    <div>
-                      <label className="lbl">Calle</label>
-                      <input className="inp" value={street} onChange={e=>setStreet(e.target.value)} placeholder="Calle" />
-                    </div>
-                    <div>
-                      <label className="lbl">Altura</label>
-                      <input className="inp" value={number} onChange={e=>setNumber(e.target.value)} placeholder="Altura" />
-                    </div>
-                  </div>
-                  <div className="row2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-                    <div>
-                      <label className="lbl">Piso</label>
-                      <input className="inp" value={floor} onChange={e=>setFloor(e.target.value)} placeholder="Piso (opcional)" />
-                    </div>
-                    <div>
-                      <label className="lbl">Depto</label>
-                      <input className="inp" value={apartment} onChange={e=>setApartment(e.target.value)} placeholder="Depto (opcional)" />
-                    </div>
-                  </div>
-                  <div className="row2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-                    <div>
-                      <label className="lbl">Ciudad</label>
-                      <input className="inp" value={city} onChange={e=>setCity(e.target.value)} placeholder="Ciudad" />
-                    </div>
-                    <div>
-                      <label className="lbl">Provincia</label>
-                      <input className="inp" value={state} onChange={e=>setState(e.target.value)} placeholder="Provincia" />
-                    </div>
-                  </div>
-                  <div className="mt">
-                    <label className="lbl">Código postal</label>
-                    <input className="inp" value={zip} onChange={e=>setZip(e.target.value)} placeholder="CP" />
-                  </div>
-                </div>
+              {!!shipFreeFrom && shipFreeFrom>0 && (
+                <p className="mt-2 text-xs text-white/50">Envío gratis desde {money(shipFreeFrom)}.</p>
               )}
+            </div>
 
-              {shipping === 'sucursal' && (
-                <div className="mt">
-                  <div className="row2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <div>
-                      <label className="lbl">ID sucursal</label>
-                      <input className="inp" value={branchId} onChange={e=>setBranchId(e.target.value)} placeholder="Ej: CA-1234" />
-                    </div>
-                    <div>
-                      <label className="lbl">Nombre de sucursal</label>
-                      <input className="inp" value={branchName} onChange={e=>setBranchName(e.target.value)} placeholder="Sucursal Centro" />
-                    </div>
+            {/* Campos condicionales */}
+            {shipping === 'domicilio' && (
+              <div className="mt-5 space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="col-span-2">
+                    <label className="block text-sm text-white/70 mb-1">Calle</label>
+                    <input
+                      className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      value={street}
+                      onChange={e=>setStreet(e.target.value)}
+                      placeholder="Calle"
+                    />
                   </div>
-                  <div className="mt">
-                    <label className="lbl">Dirección</label>
-                    <input className="inp" value={branchAddress} onChange={e=>setBranchAddress(e.target.value)} placeholder="Dirección de la sucursal" />
-                  </div>
-                  <div className="row2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-                    <div>
-                      <label className="lbl">Ciudad</label>
-                      <input className="inp" value={branchCity} onChange={e=>setBranchCity(e.target.value)} placeholder="Ciudad" />
-                    </div>
-                    <div>
-                      <label className="lbl">Provincia</label>
-                      <input className="inp" value={branchState} onChange={e=>setBranchState(e.target.value)} placeholder="Provincia" />
-                    </div>
-                  </div>
-                  <div className="mt">
-                    <label className="lbl">Código postal</label>
-                    <input className="inp" value={branchZip} onChange={e=>setBranchZip(e.target.value)} placeholder="CP" />
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Altura</label>
+                    <input
+                      className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      value={number}
+                      onChange={e=>setNumber(e.target.value)}
+                      placeholder="Altura"
+                    />
                   </div>
                 </div>
-              )}
-            </section>
 
-            <section className="card" style={{ padding: 16, border: '1px solid var(--line)', borderRadius: 12, marginTop: 16 }}>
-              <h2 className="h2">Pago</h2>
-              <div className="row" style={{ display:'flex', gap:12 }}>
-                <label className="radio">
-                  <input type="radio" name="pay" value="mp" checked={pay==='mp'} onChange={()=>setPay('mp')} />
-                  <span>Mercado Pago</span>
-                </label>
-                <label className="radio">
-                  <input type="radio" name="pay" value="transferencia" checked={pay==='transferencia'} onChange={()=>setPay('transferencia')} />
-                  <span>Transferencia bancaria (DNI obligatorio)</span>
-                </label>
-              </div>
-              {pay==='mp' && <p className="muted">Recargo MP: {mpPercent}% sobre el subtotal.</p>}
-            </section>
-
-            {err && <p style={{ color:'#ff8484', marginTop:12 }}>{err}</p>}
-          </div>
-
-          {/* Columna derecha: resumen */}
-          <div>
-            <section className="card" style={{ padding: 16, border: '1px solid var(--line)', borderRadius: 12 }}>
-              <h2 className="h2">Resumen</h2>
-              <div className="list">
-                {cart.length===0 && <div className="row" style={{ color:'var(--muted)' }}>Tu carrito está vacío</div>}
-                {cart.map((it, i) => (
-                  <div key={i} className="row" style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
-                    <div>{it.name} × {it.qty}</div>
-                    <div>{money(it.price * it.qty)}</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Piso (opcional)</label>
+                    <input
+                      className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      value={floor}
+                      onChange={e=>setFloor(e.target.value)}
+                      placeholder="Piso"
+                    />
                   </div>
-                ))}
-              </div>
-
-              <div className="mt">
-                <div className="row" style={{ display:'flex', justifyContent:'space-between' }}>
-                  <span>Subtotal</span>
-                  <span>{money(subtotal)}</span>
-                </div>
-                <div className="row" style={{ display:'flex', justifyContent:'space-between' }}>
-                  <span>Envío</span>
-                  <span>{money(shipCost)}</span>
-                </div>
-                {pay==='mp' && (
-                  <div className="row" style={{ display:'flex', justifyContent:'space-between' }}>
-                    <span>Recargo MP</span>
-                    <span>{money(mpFee)}</span>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Depto (opcional)</label>
+                    <input
+                      className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      value={apartment}
+                      onChange={e=>setApartment(e.target.value)}
+                      placeholder="Departamento"
+                    />
                   </div>
-                )}
-                <div className="row" style={{ display:'flex', justifyContent:'space-between', fontWeight:900 }}>
-                  <span>Total</span>
-                  <span>{money(total)}</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Ciudad</label>
+                    <input
+                      className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      value={city}
+                      onChange={e=>setCity(e.target.value)}
+                      placeholder="Ciudad"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Provincia</label>
+                    <input
+                      className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      value={state}
+                      onChange={e=>setState(e.target.value)}
+                      placeholder="Provincia"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Código postal</label>
+                    <input
+                      className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      value={zip}
+                      onChange={e=>setZip(e.target.value)}
+                      placeholder="CP"
+                    />
+                  </div>
                 </div>
               </div>
+            )}
 
-              <div className="mt">
-                <button className="btn" disabled={busy || cart.length===0 || !shipping} onClick={onConfirm}>
-                  {busy ? 'Procesando…' : 'Confirmar pedido'}
+            {shipping === 'sucursal' && (
+              <div className="mt-5">
+                <label className="block text-sm text-white/70 mb-1">ID de sucursal</label>
+                <input
+                  className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                  value={branchId}
+                  onChange={e=>setBranchId(e.target.value)}
+                  placeholder="Ej: CA-1234"
+                />
+                <p className="mt-2 text-xs text-white/50">
+                  Más adelante sumamos el buscador de sucursales. Por ahora, ingresá el ID exacto.
+                </p>
+              </div>
+            )}
+
+            {/* Pago */}
+            <div className="mt-8">
+              <h3 className="text-lg font-semibold text-white/90">Pago</h3>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={()=>setPay('mp')}
+                  className={`rounded-xl border px-3 py-2 text-sm transition
+                    ${pay==='mp'
+                      ? 'border-indigo-400/50 bg-indigo-500/10 text-indigo-200'
+                      : 'border-white/10 bg-[#0b0d14] text-white/80 hover:border-white/20'}`}
+                >
+                  Mercado Pago
+                </button>
+                <button
+                  type="button"
+                  onClick={()=>setPay('transferencia')}
+                  className={`rounded-xl border px-3 py-2 text-sm transition
+                    ${pay==='transferencia'
+                      ? 'border-indigo-400/50 bg-indigo-500/10 text-indigo-200'
+                      : 'border-white/10 bg-[#0b0d14] text-white/80 hover:border-white/20'}`}
+                >
+                  Transferencia bancaria
                 </button>
               </div>
-            </section>
-          </div>
+
+              {pay==='mp' && (
+                <p className="mt-2 text-xs text-white/60">
+                  Recargo MP: {mpPercent}% sobre el subtotal.
+                </p>
+              )}
+
+              {pay==='transferencia' && (
+                <div className="mt-4">
+                  <label className="block text-sm text-white/70 mb-1">DNI del ordenante (obligatorio)</label>
+                  <input
+                    className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                    value={shipDni}
+                    onChange={e=>setShipDni(e.target.value)}
+                    placeholder="Ej: 30123456"
+                  />
+                  <p className="mt-2 text-xs text-white/50">
+                    Te pediremos subir el comprobante en el chat del pedido luego de confirmar.
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Resumen */}
+          <aside className="rounded-2xl border border-white/10 bg-[#0f1118] p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,.35)]">
+            <h2 className="text-lg font-semibold text-white/90">Resumen</h2>
+
+            <div className="mt-4 space-y-2">
+              {cart.length === 0 && (
+                <div className="text-white/60">Tu carrito está vacío</div>
+              )}
+              {cart.map((it, i) => (
+                <div key={i} className="flex items-center justify-between text-sm">
+                  <span className="text-white/80">{it.name} × {it.qty}</span>
+                  <span className="text-white/90">{money(it.price * it.qty)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Totales */}
+            <div className="mt-5 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-white/60">Subtotal</span>
+                <span className="text-white/90">{money(subtotal)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/60">Envío</span>
+                <span className="text-white/90">{money(shipCost)}</span>
+              </div>
+              {pay==='mp' && (
+                <div className="flex justify-between">
+                  <span className="text-white/60">Recargo MP</span>
+                  <span className="text-white/90">{money(mpFee)}</span>
+                </div>
+              )}
+              <div className="mt-2 h-px bg-white/10" />
+              <div className="flex justify-between font-extrabold text-white">
+                <span>Total</span>
+                <span>{money(total)}</span>
+              </div>
+            </div>
+
+            <button
+              disabled={busy || cart.length===0 || !shipping}
+              onClick={onConfirm}
+              className={`mt-6 w-full rounded-xl px-4 py-3 text-sm font-semibold transition
+                ${busy || cart.length===0 || !shipping
+                  ? 'cursor-not-allowed border border-white/10 bg-white/5 text-white/40'
+                  : 'border border-indigo-400/40 bg-indigo-500/20 text-indigo-100 hover:border-indigo-400/60 hover:bg-indigo-500/30'}`}
+            >
+              {busy ? 'Procesando…' : 'Confirmar pedido'}
+            </button>
+          </aside>
         </div>
       )}
     </main>
