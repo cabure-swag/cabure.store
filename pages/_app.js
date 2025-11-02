@@ -1,9 +1,12 @@
 // pages/_app.js
-import { useEffect, useRef } from 'react';
+// ✅ Importar estilos globales para restaurar el diseño original
+import '../styles/globals.css';
+
+import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
 
-// Utilidad: decodificar con tolerancia
+// Decodifica con tolerancia
 function safeDecode(v){
   try{ return decodeURIComponent(v); }catch(_e){ return v; }
 }
@@ -20,58 +23,24 @@ async function syncSsrCookie(session){
   }catch(_e){}
 }
 
-function MyApp({ Component, pageProps }){
-  const router = useRouter();
-  const readyRef = useRef(false);
-
-  useEffect(() => {
-    let sub;
-    (async () => {
-      // 1) Leer sesión actual y sincronizar cookie SSR
-      const { data: { session } } = await supabase.auth.getSession();
-      await syncSsrCookie(session || null);
-
-      // 2) Ejecutar guard inicial cuando el router está listo
-      if (router.isReady){
-        applyGuards(router, !!session);
-        readyRef.current = true;
-      }
-
-      // 3) Suscripción a cambios de auth (login/logout)
-      sub = supabase.auth.onAuthStateChange(async (_evt, sess) => {
-        await syncSsrCookie(sess || null);
-        // Re-evaluar navegación después de login/logout
-        applyGuards(router, !!sess?.user);
-      });
-    })();
-
-    return () => { sub?.data?.subscription?.unsubscribe?.(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router.isReady, router.asPath]);
-
-  return <Component {...pageProps} />;
-}
-
 /**
  * Reglas de navegación globales:
  * - Si se visita /admin o /vendedor sin sesión -> redirigir a /?next=/admin (o /vendedor).
  * - Si se visita /?next=... y HAY sesión -> redirigir inmediatamente a ese destino.
- * - Decodificar `next` si viene con %2F.
+ * - Si no hay `next` pero existe returnTo (flujo login manual), respetarlo.
  */
 function applyGuards(router, hasSession){
   const asPath = router.asPath || '/';
-  // Ej: "/?next=%2Fadmin"
   const url = typeof window !== 'undefined' ? new URL(window.location.href) : null;
   const rawNext = url?.searchParams.get('next') || null;
   const nextTo = rawNext ? safeDecode(rawNext) : null;
 
-  // Normalizar path actual sin query ni hash
   const currentPath = asPath.split('?')[0];
-
   const isAdmin = currentPath === '/admin' || currentPath.startsWith('/admin/');
   const isVendor = currentPath === '/vendedor' || currentPath.startsWith('/vendedor/');
+  const isHome = currentPath === '/' || currentPath === '';
 
-  // 1) Si estoy en /admin o /vendedor y NO tengo sesión -> mandar a home con ?next=...
+  // 1) Estoy en /admin o /vendedor y NO hay sesión → home con ?next=...
   if (!hasSession && (isAdmin || isVendor)){
     const target = isAdmin ? '/admin' : '/vendedor';
     const dest = `/?next=${encodeURIComponent(target)}`;
@@ -81,8 +50,7 @@ function applyGuards(router, hasSession){
     return;
   }
 
-  // 2) Si estoy en home con ?next=... y SÍ tengo sesión -> ir al destino
-  const isHome = currentPath === '/' || currentPath === '';
+  // 2) Estoy en home con ?next=... y SÍ hay sesión → ir al destino
   if (isHome && nextTo && hasSession){
     if (nextTo !== currentPath){
       router.replace(nextTo);
@@ -90,7 +58,7 @@ function applyGuards(router, hasSession){
     return;
   }
 
-  // 3) Si no hay `next` pero guardamos returnTo (flujo login manual), respetarlo
+  // 3) Sin `next`, pero con returnTo (flux login manual) → respetarlo
   if (isHome && !rawNext && hasSession && typeof window !== 'undefined'){
     const stored = window.sessionStorage.getItem('returnTo');
     if (stored){
@@ -101,6 +69,33 @@ function applyGuards(router, hasSession){
       }
     }
   }
+}
+
+function MyApp({ Component, pageProps }){
+  const router = useRouter();
+
+  useEffect(() => {
+    let sub;
+    (async () => {
+      // Sesión actual + cookie SSR
+      const { data: { session } } = await supabase.auth.getSession();
+      await syncSsrCookie(session || null);
+
+      // Guard inicial
+      applyGuards(router, !!session?.user);
+
+      // Reaccionar a login/logout
+      sub = supabase.auth.onAuthStateChange(async (_evt, sess) => {
+        await syncSsrCookie(sess || null);
+        applyGuards(router, !!sess?.user);
+      });
+    })();
+
+    return () => { sub?.data?.subscription?.unsubscribe?.(); };
+    // Dependemos de la ruta actual para re-evaluar el guard cuando cambia
+  }, [router.asPath]);
+
+  return <Component {...pageProps} />;
 }
 
 export default MyApp;
