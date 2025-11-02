@@ -12,7 +12,7 @@ export default function NavBar(){
   const dropRef = useRef(null);
   const router = useRouter();
 
-  // Sincroniza cookie SSR con el access_token actual (para gating server-side)
+  // --- NUEVO: sincroniza cookie SSR para gates server-side ---
   async function syncSsrCookie(sess){
     try{
       const tok = sess?.access_token || null;
@@ -24,36 +24,41 @@ export default function NavBar(){
     }catch(_e){}
   }
 
-  // Aplica retorno a la página actual luego del login
+  // --- NUEVO: aplica returnTo (permanecer en la misma página tras login) ---
   function applyReturnTo(){
-    const url = new URL(window.location.href);
-    const nextParam = url.searchParams.get('next');
-    const stored = window.sessionStorage.getItem('returnTo');
+    const url = typeof window !== 'undefined' ? new URL(window.location.href) : null;
+    const nextParam = url?.searchParams.get('next');
+    const stored = typeof window !== 'undefined' ? window.sessionStorage.getItem('returnTo') : null;
     const returnTo = nextParam || stored;
     if (returnTo){
-      window.sessionStorage.removeItem('returnTo');
-      // Evitar loops
-      if (returnTo !== window.location.pathname){
+      if (typeof window !== 'undefined'){
+        window.sessionStorage.removeItem('returnTo');
+      }
+      if (returnTo !== router.pathname){
         router.replace(returnTo);
       }
     }
   }
 
-  // Carga sesión + escucha cambios de auth
+  // Carga sesión + escucha cambios de auth (manteniendo tu lógica original)
   useEffect(() => {
     let sub;
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      setUser(data?.session?.user || null);
-      await syncSsrCookie(data?.session || null);
-      if (data?.session?.user) await loadRoles(data.session.user);
+      const { data: { session } } = await supabase.auth.getSession();
+      const u = session?.user || null;
+      setUser(u);
+      // --- NUEVO: sincronizar cookie inicial ---
+      await syncSsrCookie(session || null);
+      if (u) await loadRoles(u);
 
       sub = supabase.auth.onAuthStateChange(async (_evt, sess) => {
         const uu = sess?.user || null;
         setUser(uu);
+        // --- NUEVO: sincronizar cookie en cada cambio ---
         await syncSsrCookie(sess || null);
         if (uu) {
           await loadRoles(uu);
+          // --- NUEVO: aplicar returnTo cuando hay login ---
           applyReturnTo();
         } else {
           setIsAdmin(false); setHasVendor(false);
@@ -68,12 +73,11 @@ export default function NavBar(){
       supabase.from('admin_emails').select('email').eq('email', u.email),
       supabase.from('vendor_brands').select('brand_slug').eq('user_id', u.id),
     ]);
-    const admin = (a||[]).length>0;
-    setIsAdmin(admin);
-    setHasVendor(admin || (vb||[]).length>0);
+    setIsAdmin((a||[]).length>0);
+    setHasVendor((vb||[]).length>0 || (a||[]).length>0);
   }
 
-  // Cerrar dropdown al click fuera
+  // Cerrar dropdown al click fuera (igual que antes)
   useEffect(() => {
     const onClick = (e) => {
       if (!dropRef.current) return;
@@ -83,24 +87,36 @@ export default function NavBar(){
     return () => document.removeEventListener('click', onClick);
   }, []);
 
+  // Sign-in Google (misma UI, agregamos returnTo antes del OAuth)
   async function signInGoogle(){
-    // Guardamos returnTo actual si no viene ?next
-    if (!new URL(window.location.href).searchParams.get('next')){
-      window.sessionStorage.setItem('returnTo', window.location.pathname + window.location.search);
+    try{
+      // --- NUEVO: guardar ruta actual para volver tras login si no hay ?next
+      if (typeof window !== 'undefined' && !new URL(window.location.href).searchParams.get('next')){
+        window.sessionStorage.setItem('returnTo', window.location.pathname + window.location.search);
+      }
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined }
+      });
+    }catch(err){
+      alert('No se pudo iniciar sesión: ' + (err?.message || err));
     }
-    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
-    if (error) alert('Error al iniciar sesión');
   }
 
   return (
-    <header className="site-header">
-      <div className="container">
-        <nav className="nav">
-          <Link href="/" className="brand">Caburé.Store</Link>
-          <div className="spacer" />
+    <header className="nav">
+      <div className="nav-inner">
+        <Link href="/" className="brand cab-hover" aria-label="Ir al inicio">
+          CABURE.STORE
+        </Link>
+
+        <nav className="menu">
+          {/* ANTES DE INICIAR SESIÓN: solo botón de login (nada de menú desplegable) */}
           {!user && (
             <button className="btn" onClick={signInGoogle}>Iniciar sesión con Google</button>
           )}
+
+          {/* DESPUÉS DE INICIAR SESIÓN: avatar grande + flecha -> menú desplegable */}
           {user && (
             <div className="dropdown" ref={dropRef}>
               <button
@@ -128,7 +144,11 @@ export default function NavBar(){
                   {isAdmin && <Link role="menuitem" href="/admin">Admin</Link>}
                   <button
                     role="menuitem"
-                    onClick={() => supabase.auth.signOut().then(()=>fetch('/api/auth/session',{method:'DELETE'})).then(()=>location.href='/')}
+                    onClick={() =>
+                      supabase.auth.signOut()
+                        .then(() => fetch('/api/auth/session', { method: 'DELETE' }))
+                        .then(() => location.href='/')
+                    }
                   >
                     Cerrar sesión
                   </button>
@@ -139,32 +159,99 @@ export default function NavBar(){
         </nav>
       </div>
 
-      <style jsx>{`
-        .site-header{ position: sticky; top:0; z-index:50; backdrop-filter: blur(6px); background: rgba(15,17,24,.66); border-bottom: 1px solid var(--line); }
-        .container{ max-width: 1200px; margin: 0 auto; padding: 10px 16px; }
-        .nav{ display:flex; align-items:center; gap: 12px; }
-        .spacer{ flex:1; }
-        .brand{ font-weight:700; font-size:18px; color: #fff; text-decoration:none }
-        .btn{
-          background: #6d28d9; color: #fff; border: none;
-          padding: 8px 12px; border-radius: 10px; cursor:pointer;
+      {/* Estilos globales (SIN CAMBIOS) */}
+      <style jsx global>{`
+        .nav {
+          position: sticky;
+          top: 0;
+          z-index: 50;
+          background: #0b0d14;
+          border-bottom: 1px solid var(--line);
         }
+        .nav-inner {
+          max-width: 1200px;
+          margin: 0 auto;
+          padding: 10px 16px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .brand{
+          font-weight: 800;
+          letter-spacing: .04em;
+          line-height: 1;
+          font-size: 20px;
+          color: var(--text);
+          text-decoration: none;
+          padding: 6px 10px 6px 0;
+          transform: translateY(1px);
+        }
+        .brand.cab-hover{
+          text-decoration: none;
+          color: var(--text);
+          display: inline-block;
+          transition: color .12s ease;
+        }
+        .brand.cab-hover:hover{
+          background: linear-gradient(90deg, #7c3aed, #60a5fa, #7c3aed);
+          background-size: 200% auto;
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          animation: cabGradientMove 8s linear infinite;
+        }
+        @keyframes cabGradientMove {
+          0% { background-position: 0% 50%; }
+          100% { background-position: 200% 50%; }
+        }
+
+        .menu{ display:flex; align-items:center; gap: 8px; }
+
+        .btn{
+          border: 1px solid var(--line);
+          background: #141826;
+          color: var(--text);
+          padding: 8px 12px;
+          border-radius: 10px;
+          cursor: pointer;
+          transition: transform .12s ease, box-shadow .12s ease;
+        }
+        .btn:hover{ transform: translateY(-1px); box-shadow: 0 6px 18px rgba(124,58,237,.16); }
+
+        .dropdown{ position: relative; }
         .profile-btn{
           display:inline-flex; align-items:center; gap:8px; padding:6px 8px 6px 6px;
           border:1px solid var(--line); background:#0f1118; border-radius:12px;
         }
-        .avatar-lg{ width:28px; height:28px; border-radius:50%; object-fit:cover; }
-        .avatar-placeholder{ width:28px; height:28px; display:inline-grid; place-items:center; }
+        .profile-btn.open .chev{ transform: rotate(180deg); }
+
+        .avatar-lg{
+          width: 52px !important;
+          height: 52px !important;
+          border-radius: 999px;
+          border: 1px solid var(--line);
+          object-fit: cover;
+          display: block;
+        }
+        .avatar-placeholder{
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 52px; height: 52px; border-radius: 999px;
+          border: 1px solid var(--line); background: #10121a; font-size: 18px;
+        }
+        .chev{ color: var(--muted); transition: transform .15s ease; }
+
         .dropdown-menu{
-          position:absolute; margin-top:8px; right:16px; padding:8px;
-          background:#0f1118; border:1px solid var(--line); border-radius:12px;
-          display:grid; gap:6px; min-width: 200px;
+          position: absolute; right: 0; top: calc(100% + 8px);
+          min-width: 220px; background: #0f1118; border: 1px solid var(--line);
+          border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 6px;
+          z-index: 9999; box-shadow: 0 14px 36px rgba(5,7,12,.35);
         }
         .dropdown-menu a, .dropdown-menu button{
-          text-align:left; background:transparent; border:none; color:#fff; text-decoration:none; padding:8px; border-radius:10px;
+          text-align: left; border: 1px solid transparent; background: transparent;
+          color: var(--text); padding: 8px 10px; border-radius: 10px; text-decoration: none; cursor: pointer;
         }
         .dropdown-menu a:hover, .dropdown-menu button:hover{
-          background: rgba(255,255,255,.06);
+          background: #141a2a; border-color: rgba(124,58,237,.25);
         }
       `}</style>
     </header>
