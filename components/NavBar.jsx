@@ -24,57 +24,83 @@ export default function NavBar(){
     }catch(_e){}
   }
 
-  // --- NUEVO: aplica returnTo (permanecer en la misma página tras login) ---
+  // --- NUEVO: aplica returnTo decodificado; se invoca en mount y en onAuthStateChange ---
   function applyReturnTo(){
+    if (!router.isReady) return;
+
     const url = typeof window !== 'undefined' ? new URL(window.location.href) : null;
-    const nextParam = url?.searchParams.get('next');
-    const stored = typeof window !== 'undefined' ? window.sessionStorage.getItem('returnTo') : null;
+    const nextParamRaw = url?.searchParams.get('next') || null;
+    const storedRaw = typeof window !== 'undefined' ? window.sessionStorage.getItem('returnTo') : null;
+
+    // Decodificar si viene con %2F
+    const nextParam = nextParamRaw ? safeDecode(nextParamRaw) : null;
+    const stored = storedRaw ? safeDecode(storedRaw) : null;
+
     const returnTo = nextParam || stored;
-    if (returnTo){
-      if (typeof window !== 'undefined'){
-        window.sessionStorage.removeItem('returnTo');
-      }
-      if (returnTo !== router.pathname){
-        router.replace(returnTo);
-      }
+
+    // Evitar redirect vacío o loops
+    if (!returnTo) return;
+    if (returnTo === router.asPath || returnTo === router.pathname) return;
+
+    // Limpiar marker para no redirigir múltiples veces
+    if (typeof window !== 'undefined'){
+      window.sessionStorage.removeItem('returnTo');
     }
+
+    router.replace(returnTo);
   }
 
-  // Carga sesión + escucha cambios de auth (manteniendo tu lógica original)
+  function safeDecode(v){
+    try{ return decodeURIComponent(v); }catch(_e){ return v; }
+  }
+
+  // Carga sesión + escucha cambios de auth
   useEffect(() => {
     let sub;
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       const u = session?.user || null;
       setUser(u);
-      // --- NUEVO: sincronizar cookie inicial ---
-      await syncSsrCookie(session || null);
-      if (u) await loadRoles(u);
 
+      // Sincroniza cookie inicial
+      await syncSsrCookie(session || null);
+
+      // Carga roles si hay usuario
+      if (u) {
+        await loadRoles(u);
+        // --- NUEVO: ahora también redirigimos en el montaje si ya había sesión ---
+        applyReturnTo();
+      }
+
+      // Suscripción a cambios de auth
       sub = supabase.auth.onAuthStateChange(async (_evt, sess) => {
         const uu = sess?.user || null;
         setUser(uu);
-        // --- NUEVO: sincronizar cookie en cada cambio ---
+
+        // Sincroniza cookie en cada cambio
         await syncSsrCookie(sess || null);
+
         if (uu) {
           await loadRoles(uu);
-          // --- NUEVO: aplicar returnTo cuando hay login ---
-          applyReturnTo();
+          applyReturnTo(); // redirigir post-login
         } else {
-          setIsAdmin(false); setHasVendor(false);
+          setIsAdmin(false);
+          setHasVendor(false);
         }
       });
     })();
     return () => { sub?.data?.subscription?.unsubscribe?.(); };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady]); // --- NUEVO: esperar a que el router esté listo
 
   async function loadRoles(u){
     const [{ data: a }, { data: vb }] = await Promise.all([
       supabase.from('admin_emails').select('email').eq('email', u.email),
       supabase.from('vendor_brands').select('brand_slug').eq('user_id', u.id),
     ]);
-    setIsAdmin((a||[]).length>0);
-    setHasVendor((vb||[]).length>0 || (a||[]).length>0);
+    const admin = (a||[]).length>0;
+    setIsAdmin(admin);
+    setHasVendor(admin || (vb||[]).length>0);
   }
 
   // Cerrar dropdown al click fuera (igual que antes)
@@ -87,10 +113,9 @@ export default function NavBar(){
     return () => document.removeEventListener('click', onClick);
   }, []);
 
-  // Sign-in Google (misma UI, agregamos returnTo antes del OAuth)
+  // Sign-in Google (misma UI; guardamos returnTo si no vino ?next)
   async function signInGoogle(){
     try{
-      // --- NUEVO: guardar ruta actual para volver tras login si no hay ?next
       if (typeof window !== 'undefined' && !new URL(window.location.href).searchParams.get('next')){
         window.sessionStorage.setItem('returnTo', window.location.pathname + window.location.search);
       }
