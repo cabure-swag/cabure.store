@@ -1,5 +1,8 @@
 // pages/vendedor/index.js
 import Link from 'next/link';
+import { withVendor } from '../../lib/requireRole';
+
+export const getServerSideProps = withVendor();
 
 export default function VendedorHome(){
   return (
