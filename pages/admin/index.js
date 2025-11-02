@@ -1,5 +1,8 @@
 // pages/admin/index.js
 import Link from 'next/link';
+import { withAdmin } from '../../lib/requireRole';
+
+export const getServerSideProps = withAdmin();
 
 export default function AdminHome(){
   return (
