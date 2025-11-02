@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
 
-/** Utilidades */
+/* =========================
+   Utilidades / helpers
+========================= */
 const money = (n) => {
   try { return n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }); }
   catch { return `$${n}`; }
@@ -27,7 +29,70 @@ function parseCart(slug) {
   } catch { return []; }
 }
 
-/** Collapse con animación sutil (height+fade) */
+/* =========================
+   Micro UI: GlassCard / Field
+========================= */
+
+// Card “glass” con fondo sutil y blur (agradable y moderno)
+function GlassCard({ children, className='' }) {
+  return (
+    <section
+      className={
+        `rounded-2xl border border-white/10 bg-[#0c0f16]/65 backdrop-blur-md
+         shadow-[0_10px_40px_rgba(0,0,0,.35)] ${className}`
+      }
+    >
+      {children}
+    </section>
+  );
+}
+
+// Input con floating label oscuro y foco suave
+function Field({ id, label, value, onChange, type='text', placeholder=' ', autoComplete, required=false }) {
+  const filled = !!value?.toString().trim();
+  return (
+    <div className="relative">
+      <input
+        id={id}
+        type={type}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        required={required}
+        className="peer w-full rounded-xl border border-white/12 bg-[#0a0d13] px-3 py-3 text-white
+                   placeholder-transparent outline-none transition
+                   focus:ring-2 focus:ring-indigo-500/35 focus:border-indigo-400/50"
+      />
+      <label
+        htmlFor={id}
+        className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/55 text-sm transition-all
+                    peer-focus:top-2 peer-focus:text-xs peer-focus:text-indigo-200
+                    ${filled ? 'top-2 text-xs text-white/60' : ''}`}
+      >
+        {label}
+      </label>
+    </div>
+  );
+}
+
+// Botón “pill” para opciones (envío/pago)
+function Pill({ active, children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-xl px-3 py-2 text-sm transition border
+        ${active
+          ? 'border-indigo-400/60 bg-indigo-500/15 text-indigo-100'
+          : 'border-white/12 bg-[#0a0d13] text-white/75 hover:border-white/20 hover:text-white'}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Collapse con animación sutil (height + fade)
 function Collapse({ show, children }) {
   const [mounted, setMounted] = useState(show);
   useEffect(() => { if (show) setMounted(true); }, [show]);
@@ -44,27 +109,9 @@ function Collapse({ show, children }) {
   );
 }
 
-/** Input oscuro minimalista */
-function DarkInput({ id, label, value, onChange, type='text', placeholder='', autoComplete, required=false }) {
-  return (
-    <label htmlFor={id} className="block">
-      <span className="mb-1 block text-xs text-white/70">{label}</span>
-      <input
-        id={id}
-        type={type}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-        required={required}
-        className="w-full rounded-xl border border-white/10 bg-[#0b0d14] px-3 py-2 text-white placeholder-white/40
-                   outline-none transition focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400/40"
-      />
-    </label>
-  );
-}
-
-/** Página */
+/* =========================
+   Página Checkout
+========================= */
 export default function Checkout() {
   const router = useRouter();
   const slug = router.query.brandSlug;
@@ -77,21 +124,21 @@ export default function Checkout() {
   const [cart, setCart] = useState([]);
 
   // Selecciones
-  const [shipping, setShipping] = useState(''); // 'domicilio' | 'sucursal'
-  const [pay, setPay] = useState('mp');        // 'mp' | 'transferencia'
+  const [shipping, setShipping] = useState('');   // 'domicilio' | 'sucursal'
+  const [pay, setPay] = useState('mp');           // 'mp' | 'transferencia'
 
-  // Datos comunes mínimos
+  // Datos comunes
   const [shipName, setShipName] = useState('');
   const [shipPhone, setShipPhone] = useState('');
 
-  // DNI (solo transferencia)
+  // DNI (solo si transferencia)
   const [shipDni, setShipDni] = useState('');
 
   // Domicilio
   const [street, setStreet] = useState('');
   const [number, setNumber] = useState('');
-  const [floor, setFloor] = useState('');        // opcional
-  const [apartment, setApartment] = useState('');// opcional
+  const [floor, setFloor] = useState('');
+  const [apartment, setApartment] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
@@ -108,19 +155,16 @@ export default function Checkout() {
     setLoadingBrand(true);
     supabase.from('brands')
       .select('slug, name, ship_domicilio, ship_sucursal, ship_free_from, mp_fee')
-      .eq('slug', slug)
-      .single()
-      .then(({ data, error }) => {
-        if (error) console.error(error);
+      .eq('slug', slug).single()
+      .then(({ data }) => {
         setBrand(data || null);
         setLoadingBrand(false);
       });
-
     setCart(parseCart(slug));
   }, [slug]);
 
   // Totales
-  const subtotal = useMemo(() => cart.reduce((acc, it) => acc + it.price * it.qty, 0), [cart]);
+  const subtotal = useMemo(() => cart.reduce((a, it) => a + it.price * it.qty, 0), [cart]);
   const mpPercent = Number.isFinite(brand?.mp_fee) ? Number(brand.mp_fee) : 10;
   const baseShipPrice = shipping === 'domicilio'
     ? (brand?.ship_domicilio || 0)
@@ -132,7 +176,7 @@ export default function Checkout() {
   const mpFee = pay === 'mp' ? Math.round(subtotal * (mpPercent / 100)) : 0;
   const total = subtotal + shipCost + mpFee;
 
-  // Validación justa
+  // Validación mínima y contextual
   function validate() {
     if (cart.length === 0) return 'Tu carrito está vacío.';
     if (!shipName.trim()) return 'Ingresá tu nombre.';
@@ -154,10 +198,10 @@ export default function Checkout() {
     if (pay === 'transferencia' && !shipDni.trim()) {
       return 'Para transferencia, el DNI es obligatorio.';
     }
-
     return null;
   }
 
+  // Confirmación
   async function onConfirm() {
     setErr('');
     const why = validate();
@@ -250,62 +294,57 @@ export default function Checkout() {
     }
   }
 
-  /** UI */
+  /* =========================
+     UI
+  ========================= */
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
-      {/* Encabezado simple y claro */}
-      <div className="flex items-end justify-between gap-4">
-        <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white/90">Finalizar compra</h1>
-        {!loadingBrand && brand && (
-          <span className="text-xs px-2 py-1 rounded-full border border-white/10 text-white/60">
-            {brand.name}
-          </span>
-        )}
+      {/* Encabezado con acento sutil */}
+      <div className="mb-6 rounded-2xl border border-white/10 bg-gradient-to-r from-white/3 to-white/0 p-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white/90">
+            Finalizar compra
+          </h1>
+          {!loadingBrand && brand && (
+            <span className="text-xs px-2 py-1 rounded-full border border-white/10 text-white/70">
+              {brand.name}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Error inline, sobrio */}
+      {/* Error suave */}
       {err && (
-        <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {err}
         </div>
       )}
 
-      {/* Layout dos columnas, sin ruido */}
-      <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-[1fr_380px]">
+      {/* Dos columnas: Form + Resumen */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_380px]">
         {/* Formulario */}
-        <section className="rounded-2xl border border-white/10 bg-[#0f1118] p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,.35)]">
+        <GlassCard className="p-5 md:p-6">
           <h2 className="text-lg font-semibold text-white/90">Datos de envío</h2>
 
+          {/* Nombre / Teléfono */}
           <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <DarkInput id="shipName" label="Nombre y apellido" value={shipName} onChange={e=>setShipName(e.target.value)} autoComplete="name" />
-            <DarkInput id="shipPhone" label="Teléfono" value={shipPhone} onChange={e=>setShipPhone(e.target.value)} autoComplete="tel" />
+            <Field id="shipName" label="Nombre y apellido" value={shipName} onChange={e=>setShipName(e.target.value)} autoComplete="name" />
+            <Field id="shipPhone" label="Teléfono" value={shipPhone} onChange={e=>setShipPhone(e.target.value)} autoComplete="tel" />
           </div>
 
-          {/* Tipo de envío: dos botones segmentados, discretos */}
-          <div className="mt-5">
+          {/* Tipo de envío */}
+          <div className="mt-6">
             <div className="mb-2 text-xs text-white/70">Tipo de envío</div>
-            <div className="inline-flex rounded-xl border border-white/10 bg-[#0b0d14] p-1">
-              <button
-                type="button"
-                onClick={() => setShipping('domicilio')}
-                className={`px-3 py-2 text-sm rounded-lg transition
-                  ${shipping==='domicilio' ? 'bg-indigo-500/15 text-indigo-200' : 'text-white/75 hover:text-white'}`}
-                aria-pressed={shipping==='domicilio'}
-              >
+            <div className="flex flex-wrap gap-3">
+              <Pill active={shipping==='domicilio'} onClick={()=>setShipping('domicilio')}>
                 Domicilio {Number.isFinite(brand?.ship_domicilio) && brand.ship_domicilio>0 ? `(+ ${money(brand.ship_domicilio)})` : ''}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShipping('sucursal')}
-                className={`px-3 py-2 text-sm rounded-lg transition
-                  ${shipping==='sucursal' ? 'bg-indigo-500/15 text-indigo-200' : 'text-white/75 hover:text-white'}`}
-                aria-pressed={shipping==='sucursal'}
-              >
+              </Pill>
+              <Pill active={shipping==='sucursal'} onClick={()=>setShipping('sucursal')}>
                 Sucursal {Number.isFinite(brand?.ship_sucursal) && brand.ship_sucursal>0 ? `(+ ${money(brand.ship_sucursal)})` : ''}
-              </button>
+              </Pill>
             </div>
             {!!shipFreeFrom && shipFreeFrom>0 && (
-              <p className="mt-2 text-xs text-white/50">Envío gratis desde {money(shipFreeFrom)}.</p>
+              <p className="mt-2 text-xs text-white/55">Envío gratis desde {money(shipFreeFrom)}.</p>
             )}
           </div>
 
@@ -313,57 +352,39 @@ export default function Checkout() {
           <Collapse show={shipping === 'domicilio'}>
             <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
-                <DarkInput id="street" label="Calle" value={street} onChange={e=>setStreet(e.target.value)} autoComplete="address-line1" />
+                <Field id="street" label="Calle" value={street} onChange={e=>setStreet(e.target.value)} autoComplete="address-line1" />
               </div>
-              <DarkInput id="number" label="Altura" value={number} onChange={e=>setNumber(e.target.value)} autoComplete="address-line2" />
-              <DarkInput id="floor" label="Piso (opcional)" value={floor} onChange={e=>setFloor(e.target.value)} />
-              <DarkInput id="apartment" label="Depto (opcional)" value={apartment} onChange={e=>setApartment(e.target.value)} />
-              <DarkInput id="city" label="Ciudad" value={city} onChange={e=>setCity(e.target.value)} autoComplete="address-level2" />
-              <DarkInput id="state" label="Provincia" value={state} onChange={e=>setState(e.target.value)} autoComplete="address-level1" />
-              <DarkInput id="zip" label="Código postal" value={zip} onChange={e=>setZip(e.target.value)} autoComplete="postal-code" />
+              <Field id="number" label="Altura" value={number} onChange={e=>setNumber(e.target.value)} autoComplete="address-line2" />
+              <Field id="floor" label="Piso (opcional)" value={floor} onChange={e=>setFloor(e.target.value)} />
+              <Field id="apartment" label="Depto (opcional)" value={apartment} onChange={e=>setApartment(e.target.value)} />
+              <Field id="city" label="Ciudad" value={city} onChange={e=>setCity(e.target.value)} autoComplete="address-level2" />
+              <Field id="state" label="Provincia" value={state} onChange={e=>setState(e.target.value)} autoComplete="address-level1" />
+              <Field id="zip" label="Código postal" value={zip} onChange={e=>setZip(e.target.value)} autoComplete="postal-code" />
             </div>
           </Collapse>
 
           {/* Sucursal */}
           <Collapse show={shipping === 'sucursal'}>
             <div className="mt-5 grid grid-cols-1 gap-4">
-              <DarkInput id="branchId" label="ID de sucursal" value={branchId} onChange={e=>setBranchId(e.target.value)} />
-              <p className="text-xs text-white/50">Próximamente: buscador de sucursales.</p>
+              <Field id="branchId" label="ID de sucursal" value={branchId} onChange={e=>setBranchId(e.target.value)} />
+              <p className="text-xs text-white/55">Próximamente: buscador de sucursales con autocompletar.</p>
             </div>
           </Collapse>
 
           {/* Pago */}
           <div className="mt-8">
             <h3 className="text-lg font-semibold text-white/90">Pago</h3>
-            <div className="mt-3 inline-flex rounded-xl border border-white/10 bg-[#0b0d14] p-1">
-              <button
-                type="button"
-                onClick={()=>setPay('mp')}
-                className={`px-3 py-2 text-sm rounded-lg transition
-                  ${pay==='mp' ? 'bg-indigo-500/15 text-indigo-200' : 'text-white/75 hover:text-white'}`}
-                aria-pressed={pay==='mp'}
-              >
-                Mercado Pago
-              </button>
-              <button
-                type="button"
-                onClick={()=>setPay('transferencia')}
-                className={`px-3 py-2 text-sm rounded-lg transition
-                  ${pay==='transferencia' ? 'bg-indigo-500/15 text-indigo-200' : 'text-white/75 hover:text-white'}`}
-                aria-pressed={pay==='transferencia'}
-              >
-                Transferencia bancaria
-              </button>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <Pill active={pay==='mp'} onClick={()=>setPay('mp')}>Mercado Pago</Pill>
+              <Pill active={pay==='transferencia'} onClick={()=>setPay('transferencia')}>Transferencia bancaria</Pill>
             </div>
-
             {pay==='mp' && (
               <p className="mt-2 text-xs text-white/60">Recargo MP: {mpPercent}% sobre el subtotal.</p>
             )}
-
             <Collapse show={pay === 'transferencia'}>
               <div className="mt-4 grid grid-cols-1 gap-4">
-                <DarkInput id="shipDni" label="DNI del ordenante (obligatorio)" value={shipDni} onChange={e=>setShipDni(e.target.value)} />
-                <p className="text-xs text-white/50">Luego de confirmar, subís el comprobante en el chat del pedido.</p>
+                <Field id="shipDni" label="DNI del ordenante (obligatorio)" value={shipDni} onChange={e=>setShipDni(e.target.value)} autoComplete="off" />
+                <p className="text-xs text-white/55">Después de confirmar vas a subir el comprobante en el chat del pedido.</p>
               </div>
             </Collapse>
           </div>
@@ -375,16 +396,16 @@ export default function Checkout() {
               onClick={onConfirm}
               className={`w-full rounded-xl px-4 py-3 text-sm font-semibold transition
                 ${busy || cart.length===0 || !shipping
-                  ? 'cursor-not-allowed border border-white/10 bg-white/5 text-white/40'
-                  : 'border border-emerald-400/40 bg-emerald-500/20 text-emerald-100 hover:border-emerald-400/60 hover:bg-emerald-500/30'}`}
+                  ? 'cursor-not-allowed border border-white/12 bg-white/[0.04] text-white/40'
+                  : 'border border-emerald-400/45 bg-emerald-500/20 text-emerald-100 hover:border-emerald-400/70 hover:bg-emerald-500/30'}`}
             >
               {busy ? 'Procesando…' : 'Confirmar pedido'}
             </button>
           </div>
-        </section>
+        </GlassCard>
 
         {/* Resumen */}
-        <aside className="rounded-2xl border border-white/10 bg-[#0f1118] p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,.35)] md:sticky md:top-6 h-fit">
+        <GlassCard className="p-5 md:p-6 md:sticky md:top-6 h-fit">
           <h2 className="text-lg font-semibold text-white/90">Resumen</h2>
 
           <div className="mt-4 space-y-2 text-sm">
@@ -408,7 +429,7 @@ export default function Checkout() {
               <span>Total</span><span>{money(total)}</span>
             </div>
           </div>
-        </aside>
+        </GlassCard>
       </div>
     </main>
   );
