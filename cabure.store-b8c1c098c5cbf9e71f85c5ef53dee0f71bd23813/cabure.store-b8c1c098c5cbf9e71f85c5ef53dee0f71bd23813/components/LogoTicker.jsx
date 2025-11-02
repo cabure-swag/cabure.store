@@ -1,1 +1,0 @@
-export default function LogoTicker({logos=[]}){const items=[...logos,...logos];return(<div className='ticker'><div className='track' style={{width:'200%'}}>{items.map((src,i)=>(<img key={i} src={src||'/logo.png'} alt='logo'/>))}</div></div>)}
