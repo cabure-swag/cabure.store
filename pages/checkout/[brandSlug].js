@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
 
-// Helper para evitar NaN
+// Helper numérico seguro
 const toNumber = (v, d = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
@@ -21,12 +21,12 @@ export default function Checkout() {
   const [cart, setCart] = useState([]);
 
   // Selecciones
-  const [shipping, setShipping] = useState('');          // 'domicilio' | 'sucursal'
-  const [pay, setPay] = useState('transferencia');       // 'transferencia' | 'mp'
+  const [shipping, setShipping] = useState('');           // 'domicilio' | 'sucursal'
+  const [pay, setPay] = useState('transferencia');        // 'transferencia' | 'mp'
 
-  // Datos comunes
-  const [shipName, setShipName] = useState('');
-  const [shipPhone, setShipPhone] = useState('');
+  // Datos comprador
+  const [shipName, setShipName] = useState('');           // Solo nombre
+  // NO PEDIMOS TELEFONO
 
   // Domicilio
   const [street, setStreet] = useState('');
@@ -37,8 +37,13 @@ export default function Checkout() {
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
 
-  // Sucursal
+  // Sucursal (manual)
   const [branchId, setBranchId] = useState('');
+  const [branchName, setBranchName] = useState('');
+  const [branchAddress, setBranchAddress] = useState('');
+  const [branchCity, setBranchCity] = useState('');
+  const [branchState, setBranchState] = useState('');
+  const [branchZip, setBranchZip] = useState('');
 
   // Transferencia
   const [shipDni, setShipDni] = useState('');
@@ -51,7 +56,7 @@ export default function Checkout() {
   useEffect(() => {
     if (!slug) return;
 
-    // Carrito por marca
+    // Carrito
     try {
       const raw = localStorage.getItem(`cart:${slug}`);
       const arr = raw ? JSON.parse(raw) : [];
@@ -73,6 +78,7 @@ export default function Checkout() {
 
   // Totales
   const subtotal = useMemo(() => cart.reduce((a, c) => a + (toNumber(c.price) * toNumber(c.qty, 1)), 0), [cart]);
+
   const shipCost = useMemo(() => {
     if (!brand) return 0;
     const base = shipping === 'domicilio'
@@ -97,7 +103,6 @@ export default function Checkout() {
   function validate() {
     if (cart.length === 0) return 'Tu carrito está vacío.';
     if (!shipName.trim()) return 'Ingresá tu nombre.';
-    if (!shipPhone.trim()) return 'Ingresá un teléfono de contacto.';
     if (!shipping) return 'Elegí el tipo de envío.';
 
     if (shipping === 'domicilio') {
@@ -107,9 +112,15 @@ export default function Checkout() {
       if (!state.trim()) return 'Ingresá la provincia.';
       if (!zip.trim()) return 'Ingresá el código postal.';
     }
+
     if (shipping === 'sucursal') {
       if (!branchId.trim()) return 'Ingresá el ID de la sucursal.';
+      if (!branchName.trim()) return 'Ingresá el nombre de la sucursal.';
+      if (!branchCity.trim()) return 'Ingresá la ciudad de la sucursal.';
+      if (!branchState.trim()) return 'Ingresá la provincia de la sucursal.';
+      // Dirección y CP quedan opcionales para no frenar la compra.
     }
+
     if (pay === 'transferencia' && !shipDni.trim()) {
       return 'Para transferencia, el DNI es obligatorio.';
     }
@@ -124,23 +135,26 @@ export default function Checkout() {
 
     try {
       setBusy(true);
-      // Sesión
-      const { data: { session } } = await supabase.auth.getSession();
+      // Sesión (usamos email del usuario logueado)
+      const { data: { session} } = await supabase.auth.getSession();
       const u = session?.user;
       if (!u) {
-        // Volverá a esta misma página
+        // Volverá a esta misma página post-login
         location.href = `/?next=${encodeURIComponent(router.asPath)}`;
         return;
       }
 
-      // Armado payload con datos mínimos
+      const buyerEmail = u.email || null;
+
+      // Payload
       const payload = {
         user_id: u.id,
         brand_slug: slug,
         shipping,                 // 'domicilio' | 'sucursal'
         pay,                      // 'transferencia' | 'mp'
         ship_name: shipName,
-        ship_phone: shipPhone,
+        // ship_phone eliminado
+        buyer_email: buyerEmail,  // <— email de la sesión (para el vendedor)
         ship_dni: pay === 'transferencia' ? shipDni : null,
         subtotal,
         mp_fee_pct: toNumber(brand?.mp_fee, 10),
@@ -161,11 +175,11 @@ export default function Checkout() {
       } else if (shipping === 'sucursal') {
         Object.assign(payload, {
           branch_id: branchId,
-          branch_name: null,
-          branch_address: null,
-          branch_city: null,
-          branch_state: null,
-          branch_zip: null,
+          branch_name: branchName || null,
+          branch_address: branchAddress || null,
+          branch_city: branchCity || null,
+          branch_state: branchState || null,
+          branch_zip: branchZip || null,
         });
       }
 
@@ -177,7 +191,7 @@ export default function Checkout() {
         .single();
       if (error) throw error;
 
-      // Ítems del pedido
+      // Ítems
       const rows = cart.map(c => ({
         order_id: order.id,
         product_id: c.id,
@@ -229,7 +243,7 @@ export default function Checkout() {
   // --- UI ---
   return (
     <main className="container" style={{ padding: '24px 16px' }}>
-      {/* Encabezado con acento sutil (marca visual para verificar deploy) */}
+      {/* Encabezado con acento sutil (marca visual de deploy) */}
       <div
         className="card"
         style={{
@@ -286,26 +300,17 @@ export default function Checkout() {
             }}
           >
             <strong>Datos del comprador</strong>
-            <div className="mt row" style={{ gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <label className="small">Nombre y apellido</label>
-                <input
-                  className="input"
-                  placeholder="Tu nombre"
-                  value={shipName}
-                  onChange={(e)=>setShipName(e.target.value)}
-                  autoComplete="name"
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label className="small">Teléfono</label>
-                <input
-                  className="input"
-                  placeholder="+54 9 ..."
-                  value={shipPhone}
-                  onChange={(e)=>setShipPhone(e.target.value)}
-                  autoComplete="tel"
-                />
+            <div className="mt">
+              <label className="small">Nombre y apellido</label>
+              <input
+                className="input"
+                placeholder="Tu nombre"
+                value={shipName}
+                onChange={(e)=>setShipName(e.target.value)}
+                autoComplete="name"
+              />
+              <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
+                Usaremos tu <strong>email de la cuenta</strong> para el vendedor (no hace falta ingresar teléfono).
               </div>
             </div>
 
@@ -318,7 +323,15 @@ export default function Checkout() {
                   <select
                     className="input"
                     value={shipping || ''}
-                    onChange={(e) => setShipping(e.target.value || '')}
+                    onChange={(e) => {
+                      const v = e.target.value || '';
+                      setShipping(v);
+                      if (v !== 'sucursal') {
+                        // limpiar datos de sucursal si cambia a domicilio
+                        setBranchId(''); setBranchName(''); setBranchAddress('');
+                        setBranchCity(''); setBranchState(''); setBranchZip('');
+                      }
+                    }}
                   >
                     <option value="">Elegí envío</option>
                     {brand.ship_domicilio != null && (
@@ -385,26 +398,79 @@ export default function Checkout() {
                 </div>
               </div>
 
-              {/* Sucursal (condicional) */}
+              {/* Sucursal (manual, sin desplegable ni buscador) */}
               <div
                 style={{
                   overflow: 'hidden',
-                  maxHeight: shipping === 'sucursal' ? 300 : 0,
+                  maxHeight: shipping === 'sucursal' ? 900 : 0,
                   opacity: shipping === 'sucursal' ? 1 : 0,
                   transition: 'all .25s ease',
                 }}
               >
                 <div className="mt">
-                  <label className="small">ID de sucursal</label>
+                  <strong>Datos de la sucursal (completá a mano)</strong>
+                </div>
+
+                <div className="mt row" style={{ gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <label className="small">ID de sucursal</label>
+                    <input
+                      className="input"
+                      placeholder="Ej: CA-0001"
+                      value={branchId}
+                      onChange={(e)=>setBranchId(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ flex: 2 }}>
+                    <label className="small">Nombre de la sucursal</label>
+                    <input
+                      className="input"
+                      placeholder="Ej: Sucursal Centro"
+                      value={branchName}
+                      onChange={(e)=>setBranchName(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt">
+                  <label className="small">Dirección (opcional)</label>
                   <input
                     className="input"
-                    placeholder="Ej: CA-1234"
-                    value={branchId}
-                    onChange={(e)=>setBranchId(e.target.value)}
+                    placeholder="Calle y altura"
+                    value={branchAddress}
+                    onChange={(e)=>setBranchAddress(e.target.value)}
                   />
-                  <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
-                    Próximamente: selector/autocompletar de sucursales.
+                </div>
+
+                <div className="mt row" style={{ gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <label className="small">Ciudad</label>
+                    <input
+                      className="input"
+                      value={branchCity}
+                      onChange={(e)=>setBranchCity(e.target.value)}
+                    />
                   </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="small">Provincia</label>
+                    <input
+                      className="input"
+                      value={branchState}
+                      onChange={(e)=>setBranchState(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="small">CP (opcional)</label>
+                    <input
+                      className="input"
+                      value={branchZip}
+                      onChange={(e)=>setBranchZip(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="small" style={{ color: 'var(--muted)', marginTop: 8 }}>
+                  Consejo: verificá estos datos en el sitio del correo que elijas antes de confirmar.
                 </div>
               </div>
             </div>
@@ -425,7 +491,7 @@ export default function Checkout() {
                   </select>
                   {pay === 'mp' && (
                     <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
-                      Recargo MP: {brand.mp_fee ?? 10}%
+                      Recargo MP: {brand?.mp_fee ?? 10}%
                     </div>
                   )}
                 </div>
@@ -492,7 +558,7 @@ export default function Checkout() {
               ) : (
                 cart.map((c) => (
                   <div key={c.id} className="row">
-                    <div>{c.name} × {c.qty}</div>
+                    <div>{c.name} × {toNumber(c.qty, 1)}</div>
                     <div>${toNumber(c.price) * toNumber(c.qty, 1)}</div>
                   </div>
                 ))
@@ -516,7 +582,7 @@ export default function Checkout() {
               )}
               <div className="row" style={{ fontWeight: 900 }}>
                 <span>Total</span>
-                <span>${total}</span>
+                <span>${subtotal + shipCost + mpFee}</span>
               </div>
             </div>
           </div>
