@@ -3,137 +3,233 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
 
+// Helper para evitar NaN
+const toNumber = (v, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
+
 export default function Checkout() {
   const router = useRouter();
   const slug = router.query.brandSlug;
 
+  // Marca / costos
   const [brand, setBrand] = useState(null);
+  const [loadingBrand, setLoadingBrand] = useState(true);
+
+  // Carrito
   const [cart, setCart] = useState([]);
-  const [shipping, setShipping] = useState(null);        // 'domicilio' | 'sucursal'
+
+  // Selecciones
+  const [shipping, setShipping] = useState('');          // 'domicilio' | 'sucursal'
   const [pay, setPay] = useState('transferencia');       // 'transferencia' | 'mp'
 
+  // Datos comunes
+  const [shipName, setShipName] = useState('');
+  const [shipPhone, setShipPhone] = useState('');
+
+  // Domicilio
+  const [street, setStreet] = useState('');
+  const [number, setNumber] = useState('');
+  const [floor, setFloor] = useState('');        // opcional
+  const [apartment, setApartment] = useState('');// opcional
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [zip, setZip] = useState('');
+
+  // Sucursal
+  const [branchId, setBranchId] = useState('');
+
+  // Transferencia
+  const [shipDni, setShipDni] = useState('');
+
+  // UI
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Carga inicial
   useEffect(() => {
     if (!slug) return;
 
-    // Cargar carrito por marca
-    const saved = localStorage.getItem(`cart:${slug}`);
+    // Carrito por marca
     try {
-      const arr = saved ? JSON.parse(saved) : [];
+      const raw = localStorage.getItem(`cart:${slug}`);
+      const arr = raw ? JSON.parse(raw) : [];
       const list = Array.isArray(arr) ? arr : [];
-      setCart(list.filter(x => x && typeof x === 'object' && x.qty > 0));
-    } catch {
-      setCart([]);
-    }
+      setCart(list.filter(it => it && typeof it === 'object' && toNumber(it.qty, 0) > 0));
+    } catch { setCart([]); }
 
-    // Cargar datos de la marca (costos/envío/fee)
+    // Marca
+    setLoadingBrand(true);
     supabase.from('brands')
       .select('name, slug, ship_domicilio, ship_sucursal, ship_free_from, mp_fee')
       .eq('slug', slug)
       .single()
-      .then(({ data }) => setBrand(data || null));
+      .then(({ data }) => {
+        setBrand(data || null);
+        setLoadingBrand(false);
+      });
   }, [slug]);
 
-  const subtotal = useMemo(() => cart.reduce((a, c) => a + (Number(c.price || 0) * Number(c.qty || 0)), 0), [cart]);
-
+  // Totales
+  const subtotal = useMemo(() => cart.reduce((a, c) => a + (toNumber(c.price) * toNumber(c.qty, 1)), 0), [cart]);
   const shipCost = useMemo(() => {
     if (!brand) return 0;
     const base = shipping === 'domicilio'
-      ? (brand.ship_domicilio ?? 0)
+      ? toNumber(brand.ship_domicilio)
       : shipping === 'sucursal'
-      ? (brand.ship_sucursal ?? 0)
+      ? toNumber(brand.ship_sucursal)
       : 0;
-    const freeFrom = Number(brand.ship_free_from || 0);
+    const freeFrom = toNumber(brand.ship_free_from);
     if (freeFrom > 0 && subtotal >= freeFrom) return 0;
-    return Number(base || 0);
+    return base;
   }, [brand, shipping, subtotal]);
 
   const mpFee = useMemo(() => {
     if (!brand || pay !== 'mp') return 0;
-    const pct = Number(brand.mp_fee ?? 10);
+    const pct = toNumber(brand.mp_fee, 10);
     return Math.round(subtotal * (pct / 100));
   }, [brand, pay, subtotal]);
 
   const total = subtotal + shipCost + mpFee;
 
-  async function confirmOrder() {
-    // Validaciones mínimas
-    if (!shipping) return alert('Elegí el envío');
-    if (cart.length === 0) return alert('Tu carrito está vacío');
+  // Validación mínima y contextual
+  function validate() {
+    if (cart.length === 0) return 'Tu carrito está vacío.';
+    if (!shipName.trim()) return 'Ingresá tu nombre.';
+    if (!shipPhone.trim()) return 'Ingresá un teléfono de contacto.';
+    if (!shipping) return 'Elegí el tipo de envío.';
 
-    // Sesión
-    const { data: { session } } = await supabase.auth.getSession();
-    const u = session?.user;
-    if (!u) {
-      // Volverá a esta misma página
-      location.href = `/?next=${encodeURIComponent(router.asPath)}`;
-      return;
+    if (shipping === 'domicilio') {
+      if (!street.trim()) return 'Ingresá la calle.';
+      if (!number.trim()) return 'Ingresá la altura.';
+      if (!city.trim()) return 'Ingresá la ciudad.';
+      if (!state.trim()) return 'Ingresá la provincia.';
+      if (!zip.trim()) return 'Ingresá el código postal.';
     }
+    if (shipping === 'sucursal') {
+      if (!branchId.trim()) return 'Ingresá el ID de la sucursal.';
+    }
+    if (pay === 'transferencia' && !shipDni.trim()) {
+      return 'Para transferencia, el DNI es obligatorio.';
+    }
+    return null;
+  }
 
-    // Insertar orden (mantiene tu schema actual)
-    const { data: order, error } = await supabase
-      .from('orders')
-      .insert({
+  // Confirmar
+  async function confirmOrder() {
+    setErr('');
+    const why = validate();
+    if (why) { setErr(why); return; }
+
+    try {
+      setBusy(true);
+      // Sesión
+      const { data: { session } } = await supabase.auth.getSession();
+      const u = session?.user;
+      if (!u) {
+        // Volverá a esta misma página
+        location.href = `/?next=${encodeURIComponent(router.asPath)}`;
+        return;
+      }
+
+      // Armado payload con datos mínimos
+      const payload = {
         user_id: u.id,
         brand_slug: slug,
         shipping,                 // 'domicilio' | 'sucursal'
         pay,                      // 'transferencia' | 'mp'
-        mp_fee: brand?.mp_fee ?? 10,
-        ship_cost: shipCost,
+        ship_name: shipName,
+        ship_phone: shipPhone,
+        ship_dni: pay === 'transferencia' ? shipDni : null,
         subtotal,
+        mp_fee_pct: toNumber(brand?.mp_fee, 10),
         total,
-      })
-      .select('*')
-      .single();
+        status: pay === 'mp' ? 'created' : 'pending',
+      };
 
-    if (error) return alert(error.message);
+      if (shipping === 'domicilio') {
+        Object.assign(payload, {
+          ship_street: street,
+          ship_number: number,
+          ship_floor: floor || null,
+          ship_apartment: apartment || null,
+          ship_city: city,
+          ship_state: state,
+          ship_zip: zip,
+        });
+      } else if (shipping === 'sucursal') {
+        Object.assign(payload, {
+          branch_id: branchId,
+          branch_name: null,
+          branch_address: null,
+          branch_city: null,
+          branch_state: null,
+          branch_zip: null,
+        });
+      }
 
-    // Ítems
-    const rows = cart.map(c => ({
-      order_id: order.id,
-      product_id: c.id,
-      name: c.name,
-      price: c.price,
-      qty: c.qty,
-    }));
-    const { error: e2 } = await supabase.from('order_items').insert(rows);
-    if (e2) return alert(e2.message);
+      // Insertar orden
+      const { data: order, error } = await supabase
+        .from('orders')
+        .insert(payload)
+        .select('*')
+        .single();
+      if (error) throw error;
 
-    // Flujo de pago
-    if (pay === 'mp') {
-      const r = await fetch('/api/mp/create-preference', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          order_id: order.id,
-          brand_slug: slug,
-          items: cart.map(c => ({
-            title: c.name,
-            quantity: c.qty,
-            unit_price: c.price,
-          })),
-          shipping: shipCost,
-          fee_pct: brand?.mp_fee ?? 10,
-          subtotal,
-          total,
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok) return alert(j?.error || 'No se pudo crear la preferencia de MP');
-      const initPoint = j?.init_point || j?.sandbox_init_point;
-      if (!initPoint) return alert('MP no devolvió init_point');
+      // Ítems del pedido
+      const rows = cart.map(c => ({
+        order_id: order.id,
+        product_id: c.id,
+        name: c.name,
+        price: toNumber(c.price),
+        qty: toNumber(c.qty, 1),
+      }));
+      const { error: e2 } = await supabase.from('order_items').insert(rows);
+      if (e2) throw e2;
 
+      // Flujo de pago
+      if (pay === 'mp') {
+        const r = await fetch('/api/mp/create-preference', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            order_id: order.id,
+            brand_slug: slug,
+            items: cart.map(c => ({
+              title: c.name,
+              quantity: toNumber(c.qty, 1),
+              unit_price: toNumber(c.price),
+            })),
+            shipping: shipCost,
+            fee_pct: toNumber(brand?.mp_fee, 10),
+            subtotal,
+            total,
+          }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j?.error || 'No se pudo crear la preferencia de MP.');
+        const initPoint = j?.init_point || j?.sandbox_init_point;
+        if (!initPoint) throw new Error('MP no devolvió init_point.');
+        try { localStorage.removeItem(`cart:${slug}`); } catch {}
+        location.href = initPoint;
+        return;
+      }
+
+      // Transferencia
       try { localStorage.removeItem(`cart:${slug}`); } catch {}
-      location.href = initPoint;
-      return;
+      router.replace('/compras');
+    } catch (e) {
+      setErr(e?.message || String(e));
+    } finally {
+      setBusy(false);
     }
-
-    try { localStorage.removeItem(`cart:${slug}`); } catch {}
-    router.replace('/compras');
   }
 
+  // --- UI ---
   return (
     <main className="container" style={{ padding: '24px 16px' }}>
-      {/* Encabezado con acento sutil para confirmar visual en deploy */}
+      {/* Encabezado con acento sutil (marca visual para verificar deploy) */}
       <div
         className="card"
         style={{
@@ -143,13 +239,32 @@ export default function Checkout() {
             'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%)',
         }}
       >
-        <div className="row" style={{ alignItems: 'flex-end' }}>
-          <h1 className="brand" style={{ fontSize: 22, letterSpacing: '.02em' }}>Finalizar compra</h1>
-          {brand && (
+        <div className="row" style={{ alignItems: 'flex-end', gap: 8, justifyContent: 'space-between' }}>
+          <h1 className="brand" style={{ fontSize: 22, letterSpacing: '.02em' }}>
+            Finalizar compra
+          </h1>
+          {!loadingBrand && brand && (
             <span className="badge">{brand.name}</span>
           )}
         </div>
       </div>
+
+      {/* Error */}
+      {err && (
+        <div
+          className="card"
+          style={{
+            marginTop: 12,
+            padding: 12,
+            borderColor: 'rgba(239,68,68,0.25)',
+            background: 'rgba(239,68,68,0.08)',
+            color: '#fecaca',
+            fontSize: 14
+          }}
+        >
+          {err}
+        </div>
+      )}
 
       {/* Contenido */}
       {brand && (
@@ -168,65 +283,187 @@ export default function Checkout() {
               padding: 16,
               background: 'rgba(17,18,26,0.92)',
               borderColor: 'var(--line)',
-              transition: 'transform .2s ease, box-shadow .2s ease',
             }}
           >
-            <strong>Datos de envío</strong>
-
-            <div className="mt">
-              <label>Método de envío</label>
-              <select
-                className="input"
-                value={shipping || ''}
-                onChange={(e) => setShipping(e.target.value || null)}
-              >
-                <option value="">Elegí envío</option>
-                {brand.ship_domicilio != null && (
-                  <option value="domicilio">
-                    Domicilio (${brand.ship_domicilio})
-                  </option>
-                )}
-                {brand.ship_sucursal != null && (
-                  <option value="sucursal">
-                    Sucursal (${brand.ship_sucursal})
-                  </option>
-                )}
-              </select>
-              {brand.ship_free_from ? (
-                <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
-                  Envío gratis desde ${brand.ship_free_from}
-                </div>
-              ) : null}
+            <strong>Datos del comprador</strong>
+            <div className="mt row" style={{ gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label className="small">Nombre y apellido</label>
+                <input
+                  className="input"
+                  placeholder="Tu nombre"
+                  value={shipName}
+                  onChange={(e)=>setShipName(e.target.value)}
+                  autoComplete="name"
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label className="small">Teléfono</label>
+                <input
+                  className="input"
+                  placeholder="+54 9 ..."
+                  value={shipPhone}
+                  onChange={(e)=>setShipPhone(e.target.value)}
+                  autoComplete="tel"
+                />
+              </div>
             </div>
 
+            {/* Envío */}
             <div className="mt">
-              <label>Método de pago</label>
-              <select
-                className="input"
-                value={pay}
-                onChange={(e) => setPay(e.target.value)}
-              >
-                <option value="transferencia">Transferencia</option>
-                <option value="mp">Mercado Pago</option>
-              </select>
-              {pay === 'mp' && (
-                <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
-                  Recargo MP: {brand.mp_fee ?? 10}%
+              <strong>Envío</strong>
+              <div className="row" style={{ gap: 12, marginTop: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <label className="small">Método de envío</label>
+                  <select
+                    className="input"
+                    value={shipping || ''}
+                    onChange={(e) => setShipping(e.target.value || '')}
+                  >
+                    <option value="">Elegí envío</option>
+                    {brand.ship_domicilio != null && (
+                      <option value="domicilio">
+                        Domicilio ({brand.ship_domicilio ? `$${brand.ship_domicilio}` : 'sin cargo'})
+                      </option>
+                    )}
+                    {brand.ship_sucursal != null && (
+                      <option value="sucursal">
+                        Sucursal ({brand.ship_sucursal ? `$${brand.ship_sucursal}` : 'sin cargo'})
+                      </option>
+                    )}
+                  </select>
+                  {brand.ship_free_from ? (
+                    <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
+                      Envío gratis desde ${brand.ship_free_from}
+                    </div>
+                  ) : null}
                 </div>
-              )}
+              </div>
+
+              {/* Domicilio (condicional) */}
+              <div
+                style={{
+                  overflow: 'hidden',
+                  maxHeight: shipping === 'domicilio' ? 800 : 0,
+                  opacity: shipping === 'domicilio' ? 1 : 0,
+                  transition: 'all .25s ease',
+                }}
+              >
+                <div className="mt row" style={{ gap: 12 }}>
+                  <div style={{ flex: 2 }}>
+                    <label className="small">Calle</label>
+                    <input className="input" value={street} onChange={e=>setStreet(e.target.value)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="small">Altura</label>
+                    <input className="input" value={number} onChange={e=>setNumber(e.target.value)} />
+                  </div>
+                </div>
+                <div className="mt row" style={{ gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <label className="small">Piso (opcional)</label>
+                    <input className="input" value={floor} onChange={e=>setFloor(e.target.value)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="small">Depto (opcional)</label>
+                    <input className="input" value={apartment} onChange={e=>setApartment(e.target.value)} />
+                  </div>
+                </div>
+                <div className="mt row" style={{ gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <label className="small">Ciudad</label>
+                    <input className="input" value={city} onChange={e=>setCity(e.target.value)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="small">Provincia</label>
+                    <input className="input" value={state} onChange={e=>setState(e.target.value)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="small">CP</label>
+                    <input className="input" value={zip} onChange={e=>setZip(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sucursal (condicional) */}
+              <div
+                style={{
+                  overflow: 'hidden',
+                  maxHeight: shipping === 'sucursal' ? 300 : 0,
+                  opacity: shipping === 'sucursal' ? 1 : 0,
+                  transition: 'all .25s ease',
+                }}
+              >
+                <div className="mt">
+                  <label className="small">ID de sucursal</label>
+                  <input
+                    className="input"
+                    placeholder="Ej: CA-1234"
+                    value={branchId}
+                    onChange={(e)=>setBranchId(e.target.value)}
+                  />
+                  <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
+                    Próximamente: selector/autocompletar de sucursales.
+                  </div>
+                </div>
+              </div>
             </div>
 
+            {/* Pago */}
+            <div className="mt">
+              <strong>Pago</strong>
+              <div className="row" style={{ gap: 12, marginTop: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <label className="small">Método de pago</label>
+                  <select
+                    className="input"
+                    value={pay}
+                    onChange={(e) => setPay(e.target.value)}
+                  >
+                    <option value="transferencia">Transferencia</option>
+                    <option value="mp">Mercado Pago</option>
+                  </select>
+                  {pay === 'mp' && (
+                    <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
+                      Recargo MP: {brand.mp_fee ?? 10}%
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* DNI solo transferencia */}
+              <div
+                style={{
+                  overflow: 'hidden',
+                  maxHeight: pay === 'transferencia' ? 160 : 0,
+                  opacity: pay === 'transferencia' ? 1 : 0,
+                  transition: 'all .25s ease',
+                }}
+              >
+                <div className="mt">
+                  <label className="small">DNI del ordenante (obligatorio)</label>
+                  <input
+                    className="input"
+                    placeholder="30123456"
+                    value={shipDni}
+                    onChange={(e)=>setShipDni(e.target.value)}
+                  />
+                  <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
+                    Luego de confirmar, subí el comprobante en el chat del pedido.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Confirmar */}
             <div className="mt">
               <button
                 className="btn"
                 onClick={confirmOrder}
-                disabled={cart.length === 0 || !shipping}
-                style={{
-                  width: '100%',
-                  transition: 'transform .2s ease, opacity .2s ease',
-                }}
+                disabled={busy || cart.length === 0 || !shipping}
+                style={{ width: '100%', transition: 'transform .2s ease, opacity .2s ease' }}
               >
-                Confirmar
+                {busy ? 'Procesando…' : 'Confirmar pedido'}
               </button>
               {cart.length === 0 && (
                 <div className="small" style={{ color: 'var(--muted)', marginTop: 8 }}>
@@ -249,7 +486,6 @@ export default function Checkout() {
             }}
           >
             <strong>Resumen</strong>
-
             <div className="mt" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {cart.length === 0 ? (
                 <div className="small">Carrito vacío.</div>
@@ -257,7 +493,7 @@ export default function Checkout() {
                 cart.map((c) => (
                   <div key={c.id} className="row">
                     <div>{c.name} × {c.qty}</div>
-                    <div>${c.price * c.qty}</div>
+                    <div>${toNumber(c.price) * toNumber(c.qty, 1)}</div>
                   </div>
                 ))
               )}
