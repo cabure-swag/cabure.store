@@ -26,7 +26,6 @@ export default function Checkout() {
 
   // Datos comprador
   const [shipName, setShipName] = useState('');           // Solo nombre
-  // NO PEDIMOS TELEFONO
 
   // Domicilio
   const [street, setStreet] = useState('');
@@ -118,7 +117,7 @@ export default function Checkout() {
       if (!branchName.trim()) return 'Ingresá el nombre de la sucursal.';
       if (!branchCity.trim()) return 'Ingresá la ciudad de la sucursal.';
       if (!branchState.trim()) return 'Ingresá la provincia de la sucursal.';
-      // Dirección y CP quedan opcionales para no frenar la compra.
+      // Dirección y CP opcionales
     }
 
     if (pay === 'transferencia' && !shipDni.trim()) {
@@ -153,8 +152,8 @@ export default function Checkout() {
         shipping,                 // 'domicilio' | 'sucursal'
         pay,                      // 'transferencia' | 'mp'
         ship_name: shipName,
-        // ship_phone eliminado
-        buyer_email: buyerEmail,  // <— email de la sesión (para el vendedor)
+        // ship_phone eliminado de la UI y del payload
+        buyer_email: buyerEmail,  // email de la sesión (para el vendedor)
         ship_dni: pay === 'transferencia' ? shipDni : null,
         subtotal,
         mp_fee_pct: toNumber(brand?.mp_fee, 10),
@@ -309,9 +308,6 @@ export default function Checkout() {
                 onChange={(e)=>setShipName(e.target.value)}
                 autoComplete="name"
               />
-              <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
-                Usaremos tu <strong>email de la cuenta</strong> para el vendedor (no hace falta ingresar teléfono).
-              </div>
             </div>
 
             {/* Envío */}
@@ -467,10 +463,6 @@ export default function Checkout() {
                       onChange={(e)=>setBranchZip(e.target.value)}
                     />
                   </div>
-                </div>
-
-                <div className="small" style={{ color: 'var(--muted)', marginTop: 8 }}>
-                  Consejo: verificá estos datos en el sitio del correo que elijas antes de confirmar.
                 </div>
               </div>
             </div>
