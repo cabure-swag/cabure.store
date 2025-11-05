@@ -1,4 +1,3 @@
-// pages/index.js
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Head from 'next/head';
@@ -12,7 +11,7 @@ export default function HomePage() {
     (async () => {
       const { data } = await supabase
         .from('brands')
-        .select('slug,name,description,instagram,logo_url,cover_url,avatar_url,cover_photos')
+        .select('slug,name,description,instagram,logo_url,cover_url,cover_photos')
         .order('name', { ascending: true });
       setBrands(data || []);
     })();
@@ -62,7 +61,7 @@ export default function HomePage() {
                     }}
                   >
                     <img
-                      src={b.avatar_url || b.logo_url || '/logo.png'}
+                      src={b.logo_url || '/logo.png'}
                       alt={b.name}
                       style={{
                         width: 56,
