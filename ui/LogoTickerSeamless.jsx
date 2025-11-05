@@ -1,7 +1,7 @@
 // ui/LogoTickerSeamless.jsx
 // Banda de logos con diseño original (clases .cab-*) y animación seamless.
-// Usa logo_url y, si no hay, avatar_url (para soportar el sistema nuevo de uploads).
-// Ahora cada logo con slug navega a /marcas/[slug].
+// Usa logo_url y, si no hay, avatar_url (uploads del panel Vendedor).
+// Cada logo con slug navega a /marcas/[slug]. Estética intacta.
 
 import Link from 'next/link';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -152,7 +152,7 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          text-decoration: none; /* para <a> */
+          text-decoration: none; /* mantiene el look siendo <a> */
         }
         .cab-img {
           display: block;
