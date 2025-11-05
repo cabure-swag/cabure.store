@@ -1,25 +1,26 @@
 // ui/LogoTickerSeamless.jsx
-// Mismo diseño del ZIP: clases .cab-* y animación seamless.
-// Cambios mínimos:
-//  - Imagen: usa logo_url || avatar_url (para soportar uploads del vendedor)
-//  - Cada logo es enlace a /marcas/[slug] si existe slug
+// Banda de logos con diseño original (clases .cab-*) y animación seamless.
+// Lee logo_url y, si no hay, avatar_url (uploads del panel Vendedor).
+// Cada logo navega a /marcas/[slug] manteniendo el mismo look.
 
 import Link from 'next/link';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
+  // Base: si no hay marcas, placeholders para no romper el layout
   const base = (Array.isArray(brands) && brands.length) ? brands : new Array(8).fill({ slug: null, logo_url: null });
 
   const wrapRef = useRef(null);
-  const t1Ref  = useRef(null);
-  const t2Ref  = useRef(null);
+  const t1Ref = useRef(null);
+  const t2Ref = useRef(null);
 
+  // Estado interno de la animación
   const S = useRef({ x: 0, w: 1, raf: 0, lastTs: 0 });
   const [wrapW, setWrapW] = useState(0);
 
-  // Repetimos lo suficiente para superar ~2x el ancho del contenedor
+  // Repetimos lo suficiente para cubrir ~2x el ancho del wrapper
   const items = useMemo(() => {
-    const slotW = 56 + 52; // ancho aprox del slot (logo + márgenes)
+    const slotW = 56 + 52; // 56 de logo + ~52 de márgenes
     const minLen = Math.max(12, Math.ceil((wrapW * 2) / slotW));
     const out = [];
     for (let i = 0; i < minLen; i++) out.push(base[i % base.length]);
@@ -27,7 +28,11 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
   }, [base, wrapW]);
 
   // Medición del wrapper
-  const measure = () => setWrapW(wrapRef.current ? wrapRef.current.clientWidth : 0);
+  const measure = () => {
+    const wr = wrapRef.current;
+    setWrapW(wr ? wr.clientWidth : 0);
+  };
+
   useLayoutEffect(() => { measure(); }, []);
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -45,17 +50,20 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
     t2.style.transform = `translate3d(${S.current.x + W}px,0,0)`;
   };
 
-  // Animación RAF
+  // Animación por RAF
   useEffect(() => {
     const t1 = t1Ref.current;
     if (!t1) return;
 
     const step = (ts) => {
       if (!S.current.lastTs) S.current.lastTs = ts;
-      const dt = (ts - S.current.lastTs) / 1000;
+      const dt = (ts - S.current.lastTs) / 1000; // seg
       S.current.lastTs = ts;
 
-      S.current.x += -pxPerSec * dt;
+      // distancia = velocidad * dt (px/s)
+      const dx = -pxPerSec * dt;
+      S.current.x += dx;
+
       const W = (S.current.w = t1.scrollWidth || 1);
       if (S.current.x <= -W) S.current.x += W;
 
@@ -71,22 +79,25 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
     };
   }, [pxPerSec, items.length]);
 
-  const srcFor = (b) => (b?.logo_url && b.logo_url.trim()) ? b.logo_url : (b?.avatar_url || '/logo.png');
+  // Normalizar el src del logo SIN cambiar estilos externos
+  const srcFor = (b) => (b && (b.logo_url || b.avatar_url)) ? (b.logo_url || b.avatar_url) : '/logo.png';
 
-  const Slot = ({ b, k }) => {
+  // Un slot: si hay slug, lo hacemos link manteniendo la clase .cab-slot
+  const Slot = ({ b, i, track }) => {
+    const key = `${track}-${b?.slug ?? i}`;
     const content = (b && (b.logo_url || b.avatar_url))
       ? <img src={srcFor(b)} alt={b?.name || 'logo'} className="cab-img" />
       : <div className="cab-empty" />;
 
     if (b?.slug) {
       return (
-        <Link key={k} href={`/marcas/${b.slug}`} className="cab-slot" aria-label={b?.name || b.slug}>
+        <Link key={key} href={`/marcas/${b.slug}`} className="cab-slot" aria-label={b?.name || b.slug}>
           {content}
         </Link>
       );
     }
     return (
-      <div key={k} className="cab-slot" aria-hidden="true">
+      <div key={key} className="cab-slot" aria-hidden="true">
         {content}
       </div>
     );
@@ -95,13 +106,14 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
   return (
     <div ref={wrapRef} className="cab-wrap" aria-label="Banda de logos">
       <div ref={t1Ref} className="cab-track">
-        {items.map((b, i) => <Slot key={`t1-${b.slug ?? i}`} b={b} k={`t1-${b.slug ?? i}`} />)}
-      </div>
-      <div ref={t2Ref} className="cab-track">
-        {items.map((b, i) => <Slot key={`t2-${b.slug ?? i}`} b={b} k={`t2-${b.slug ?? i}`} />)}
+        {items.map((b, i) => <Slot b={b} i={i} track="t1" />)}
       </div>
 
-      {/* Misma hoja de estilos interna del ZIP (no tocamos estética) */}
+      <div ref={t2Ref} className="cab-track">
+        {items.map((b, i) => <Slot b={b} i={i} track="t2" />)}
+      </div>
+
+      {/* Estilos locales del ticker. Mantienen la estética original (.cab-*) */}
       <style jsx>{`
         .cab-wrap {
           position: relative;
@@ -131,7 +143,7 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          text-decoration: none;
+          text-decoration: none; /* mantiene el look al ser <a> */
         }
         .cab-img {
           display: block;
