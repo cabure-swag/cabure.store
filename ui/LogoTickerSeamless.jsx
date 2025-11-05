@@ -1,42 +1,39 @@
 // ui/LogoTickerSeamless.jsx
-// Banda de logos con diseño original (clases .cab-*) y animación seamless.
-// Usa logo_url y, si no hay, avatar_url (para soportar el sistema nuevo de uploads).
-// Cada logo con slug navega a /marcas/[slug]. Estética intacta.
+// Banda de logos con diseño original (.cab-*) y animación seamless.
+// Cambios clave:
+//  - Todos los logos con tamaño CONSISTENTE: 56x56, círculo perfecto.
+//  - src de imagen = logo_url || avatar_url (uploads del panel Vendedor) || '/logo.png'.
+//  - Cada logo con slug navega a /marcas/[slug]. Estética intacta.
 
 import Link from 'next/link';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
-  // Base: si no hay marcas, usamos placeholders para no romper el layout
+  // Si no hay marcas, placeholders para no romper el layout
   const base = (Array.isArray(brands) && brands.length) ? brands : new Array(8).fill({ slug: null, logo_url: null });
 
   const wrapRef = useRef(null);
   const t1Ref = useRef(null);
   const t2Ref = useRef(null);
 
-  // Estado interno de la animación
   const S = useRef({ x: 0, w: 1, raf: 0, lastTs: 0 });
   const [wrapW, setWrapW] = useState(0);
 
   // Repetimos lo suficiente para cubrir ~2x el ancho del wrapper
   const items = useMemo(() => {
-    const slotW = 56 + 52; // 56 de logo + ~52 de márgenes (12+26 a cada lado aprox.)
+    const slotW = 56 + 52; // 56 de logo + ~52 de márgenes
     const minLen = Math.max(12, Math.ceil((wrapW * 2) / slotW));
     const out = [];
     for (let i = 0; i < minLen; i++) out.push(base[i % base.length]);
     return out;
   }, [base, wrapW]);
 
-  // Medición del wrapper para saber cuánto contenido necesitamos
   const measure = () => {
     const wr = wrapRef.current;
     setWrapW(wr ? wr.clientWidth : 0);
   };
 
-  useLayoutEffect(() => {
-    measure();
-  }, []);
-
+  useLayoutEffect(() => { measure(); }, []);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const fn = () => measure();
@@ -44,7 +41,6 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
     return () => window.removeEventListener('resize', fn);
   }, []);
 
-  // Posicionar pistas
   const positionTracks = () => {
     const t1 = t1Ref.current, t2 = t2Ref.current;
     if (!t1 || !t2) return;
@@ -53,24 +49,19 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
     t2.style.transform = `translate3d(${S.current.x + W}px,0,0)`;
   };
 
-  // Animación por RAF
   useEffect(() => {
     const t1 = t1Ref.current;
     if (!t1) return;
 
     const step = (ts) => {
       if (!S.current.lastTs) S.current.lastTs = ts;
-      const dt = (ts - S.current.lastTs) / 1000; // seg
+      const dt = (ts - S.current.lastTs) / 1000;
       S.current.lastTs = ts;
 
-      // distancia = velocidad * dt (px/s)
-      const dx = -pxPerSec * dt;
-      S.current.x += dx;
+      S.current.x += -pxPerSec * dt;
+      const W = (S.current.w = t1.scrollWidth || 1);
+      if (S.current.x <= -W) S.current.x += W;
 
-      const W = S.current.w = t1.scrollWidth || 1;
-      if (S.current.x <= -W) {
-        S.current.x += W;
-      }
       positionTracks();
       S.current.raf = requestAnimationFrame(step);
     };
@@ -83,20 +74,23 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
     };
   }, [pxPerSec, items.length]);
 
-  // Normalizar el src del logo SIN cambiar estilos externos
-  const srcFor = (b) => {
-    const src = (b && (b.logo_url || b.avatar_url)) || '/logo.png';
-    return src;
-  };
+  const srcFor = (b) =>
+    (b && (b.logo_url && b.logo_url.trim() ? b.logo_url : b.avatar_url)) || '/logo.png';
 
-  // Slot: si hay slug → Link, si no → div. Se mantienen clases .cab-*
   const Slot = ({ b, i, track }) => {
     const key = `${track}-${b?.slug ?? i}`;
-    const content = (b && (b.logo_url || b.avatar_url)) ? (
-      <img src={srcFor(b)} alt={b?.name || 'logo'} className="cab-img" />
-    ) : (
-      <div className="cab-empty" />
-    );
+    const content = (b && (b.logo_url || b.avatar_url))
+      ? (
+        <img
+          src={srcFor(b)}
+          alt={b?.name || 'logo'}
+          className="cab-img"
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+        />
+      )
+      : <div className="cab-empty" />;
 
     if (b?.slug) {
       return (
@@ -117,12 +111,11 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
       <div ref={t1Ref} className="cab-track">
         {items.map((b, i) => <Slot b={b} i={i} track="t1" />)}
       </div>
-
       <div ref={t2Ref} className="cab-track">
         {items.map((b, i) => <Slot b={b} i={i} track="t2" />)}
       </div>
 
-      {/* Estilos locales del ticker. Mantienen la estética original (.cab-*) */}
+      {/* Estilos locales del ticker: respetan tu diseño, pero fuerzan tamaño/forma consistentes */}
       <style jsx>{`
         .cab-wrap {
           position: relative;
@@ -139,35 +132,37 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
           display: inline-flex;
           height: 88px;
           align-items: center;
-          will-change: transform.
+          will-change: transform;
         }
         .cab-slot {
           flex: 0 0 auto;
           width: 56px;
           height: 56px;
           margin: 12px 26px;
-          border-radius: 999px;
+          border-radius: 9999px;
           border: 1px solid var(--line);
           background: #10121a;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          text-decoration: none; /* mantiene el look siendo <a> */
+          text-decoration: none;
+          overflow: hidden;            /* recorta imágenes más grandes */
         }
         .cab-img {
           display: block;
           width: 56px !important;
           height: 56px !important;
-          max-width: none !important;
-          max-height: none !important;
-          object-fit: cover;
-          border-radius: 999px;
+          aspect-ratio: 1 / 1;        /* asegura relación 1:1 */
+          object-fit: cover;          /* evita deformaciones */
+          border-radius: 9999px;      /* círculo perfecto */
           border: 0;
+          pointer-events: none;       /* evita arrastre accidental mientras se anima */
+          -webkit-user-drag: none;
         }
         .cab-empty {
           width: 56px;
           height: 56px;
-          border-radius: 999px;
+          border-radius: 9999px;
           border: 1px dashed #222436;
           background: #0f1118;
         }
