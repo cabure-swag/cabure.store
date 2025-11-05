@@ -1,10 +1,43 @@
 // pages/admin/index.js
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { withAdmin } from '../../lib/requireRole';
-
-export const getServerSideProps = withAdmin();
+import { supabase } from '../../lib/supabaseClient';
 
 export default function AdminHome(){
+  const [ready, setReady] = useState(false);
+  const [ok, setOk] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const u = session?.user || null;
+      if (!u) {
+        // No logueado: respetar next
+        location.replace('/?next=' + encodeURIComponent('/admin'));
+        return;
+      }
+      const { data: a } = await supabase.from('admin_emails').select('email').eq('email', u.email);
+      const isAdmin = Array.isArray(a) && a.length > 0;
+      if (!isAdmin) {
+        // Logueado pero no admin → fuera
+        location.replace('/');
+        return;
+      }
+      setOk(true);
+      setReady(true);
+    })();
+  }, []);
+
+  if (!ready) {
+    return (
+      <main className="container">
+        <div className="card" style={{padding:16}}>Verificando acceso…</div>
+      </main>
+    );
+  }
+
+  if (!ok) return null;
+
   return (
     <main className="container">
       <h1 className="h1">Admin</h1>
