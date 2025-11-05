@@ -1,38 +1,167 @@
 // ui/LogoTickerSeamless.jsx
-// Versión “headless”: respeta el diseño anterior (sin estilos inline ni cambios de markup).
-// Usa logo_url y, si estuviera vacío, cae a avatar_url (para mostrar logos nuevos).
-// API compatible: { brands = [], pxPerSec } (pxPerSec queda disponible si tu CSS lo usa).
+// Banda de logos con diseño original (clases .cab-*) y animación seamless.
+// Usa logo_url y, si no hay, avatar_url (para soportar el sistema nuevo de uploads).
 
-import React, { useMemo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-export default function LogoTickerSeamless({ brands = [], pxPerSec = 40 }) {
-  // Normalizamos la fuente de imagen SIN tocar estilos.
+export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
+  // Base: si no hay marcas, usamos placeholders para no romper el layout
+  const base = (Array.isArray(brands) && brands.length) ? brands : new Array(8).fill({ slug: null, logo_url: null });
+
+  const wrapRef = useRef(null);
+  const t1Ref = useRef(null);
+  const t2Ref = useRef(null);
+
+  // Estado interno de la animación
+  const S = useRef({ x: 0, w: 1, raf: 0, lastTs: 0 });
+  const [wrapW, setWrapW] = useState(0);
+
+  // Repetimos lo suficiente para cubrir ~2x el ancho del wrapper
   const items = useMemo(() => {
-    if (!Array.isArray(brands)) return [];
-    return brands.map(b => ({
-      slug: b.slug,
-      name: b.name,
-      // Mantiene logo_url (diseño anterior). Si falta, cae a avatar_url.
-      logo: b?.logo_url || b?.avatar_url || '/logo.png',
-    }));
-  }, [brands]);
+    const slotW = 56 + 52; // 56 de logo + ~52 de márgenes (12+26 a cada lado aprox.)
+    const minLen = Math.max(12, Math.ceil((wrapW * 2) / slotW));
+    const out = [];
+    for (let i = 0; i < minLen; i++) out.push(base[i % base.length]);
+    return out;
+  }, [base, wrapW]);
 
-  // Estructura y clases sin cambios: tu CSS controla el look & feel y la animación.
+  // Medición del wrapper para saber cuánto contenido necesitamos
+  const measure = () => {
+    const wr = wrapRef.current;
+    setWrapW(wr ? wr.clientWidth : 0);
+  };
+
+  useLayoutEffect(() => {
+    measure();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const fn = () => measure();
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, []);
+
+  // Posicionar pistas
+  const positionTracks = () => {
+    const t1 = t1Ref.current, t2 = t2Ref.current;
+    if (!t1 || !t2) return;
+    const W = S.current.w || t1.scrollWidth || 1;
+    t1.style.transform = `translate3d(${S.current.x}px,0,0)`;
+    t2.style.transform = `translate3d(${S.current.x + W}px,0,0)`;
+  };
+
+  // Animación por RAF
+  useEffect(() => {
+    const t1 = t1Ref.current;
+    if (!t1) return;
+
+    const step = (ts) => {
+      if (!S.current.lastTs) S.current.lastTs = ts;
+      const dt = (ts - S.current.lastTs) / 1000; // seg
+      S.current.lastTs = ts;
+
+      // distancia = velocidad * dt (px/s)
+      const dx = -pxPerSec * dt;
+      S.current.x += dx;
+
+      const W = S.current.w = t1.scrollWidth || 1;
+      if (S.current.x <= -W) {
+        S.current.x += W;
+      }
+      positionTracks();
+      S.current.raf = requestAnimationFrame(step);
+    };
+
+    S.current.raf = requestAnimationFrame(step);
+    return () => {
+      if (S.current.raf) cancelAnimationFrame(S.current.raf);
+      S.current.raf = 0;
+      S.current.lastTs = 0;
+    };
+  }, [pxPerSec, items.length]);
+
+  // Normalizar el src del logo SIN cambiar estilos externos
+  const srcFor = (b) => {
+    const src = (b && (b.logo_url || b.avatar_url)) || '/logo.png';
+    return src;
+  };
+
   return (
-    <div className="logo-ticker-wrapper">
-      <div className="logo-ticker-track" data-speed={pxPerSec}>
-        {items.map((it) => (
-          <div key={it.slug} className="logo-ticker-item">
-            <img src={it.logo} alt={it.name || 'logo'} className="logo-ticker-img" />
-          </div>
-        ))}
-        {/* Duplicado para efecto “seamless” si tu CSS/animación lo requiere */}
-        {items.map((it) => (
-          <div key={`${it.slug}-dup`} className="logo-ticker-item">
-            <img src={it.logo} alt={it.name || 'logo'} className="logo-ticker-img" />
+    <div ref={wrapRef} className="cab-wrap" aria-label="Banda de logos">
+      <div ref={t1Ref} className="cab-track">
+        {items.map((b, i) => (
+          <div key={`t1-${b.slug ?? i}`} className="cab-slot">
+            { (b && (b.logo_url || b.avatar_url)) ? (
+              <img src={srcFor(b)} alt={b?.name || 'logo'} className="cab-img" />
+            ) : (
+              <div className="cab-empty" />
+            )}
           </div>
         ))}
       </div>
+
+      <div ref={t2Ref} className="cab-track">
+        {items.map((b, i) => (
+          <div key={`t2-${b.slug ?? i}`} className="cab-slot">
+            { (b && (b.logo_url || b.avatar_url)) ? (
+              <img src={srcFor(b)} alt={b?.name || 'logo'} className="cab-img" />
+            ) : (
+              <div className="cab-empty" />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Estilos locales del ticker. Mantienen la estética original (.cab-*) */}
+      <style jsx>{`
+        .cab-wrap {
+          position: relative;
+          width: 100%;
+          height: 88px;
+          overflow: hidden;
+          border-bottom: 1px solid var(--line);
+          user-select: none;
+        }
+        .cab-track {
+          position: absolute;
+          top: 0;
+          left: 0;
+          display: inline-flex;
+          height: 88px;
+          align-items: center;
+          will-change: transform;
+        }
+        .cab-slot {
+          flex: 0 0 auto;
+          width: 56px;
+          height: 56px;
+          margin: 12px 26px;
+          border-radius: 999px;
+          border: 1px solid var(--line);
+          background: #10121a;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .cab-img {
+          display: block;
+          width: 56px !important;
+          height: 56px !important;
+          max-width: none !important;
+          max-height: none !important;
+          object-fit: cover;
+          border-radius: 999px;
+          border: 0;
+        }
+        .cab-empty {
+          width: 56px;
+          height: 56px;
+          border-radius: 999px;
+          border: 1px dashed #222436;
+          background: #0f1118;
+        }
+      `}</style>
     </div>
   );
 }
