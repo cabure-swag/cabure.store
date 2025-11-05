@@ -110,7 +110,9 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
              href={b?.slug ? `/marcas/${b.slug}` : '#'}
              onClick={(e) => { if (!b?.slug) e.preventDefault(); }}
              title={b?.slug || 'marca'}>
-            {b?.logo_url ? <img className="cab-img" src={b.logo_url} alt={b.slug || 'marca'} /> : <div className="cab-empty" />}
+            {(b?.logo_url || b?.avatar_url)
+              ? <img className="cab-img" src={b.logo_url || b.avatar_url} alt={b.slug || 'marca'} />
+              : <div className="cab-empty" />}
           </a>
         ))}
       </div>
@@ -120,7 +122,9 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
              href={b?.slug ? `/marcas/${b.slug}` : '#'}
              onClick={(e) => { if (!b?.slug) e.preventDefault(); }}
              title={b?.slug || 'marca'}>
-            {b?.logo_url ? <img className="cab-img" src={b.logo_url} alt={b.slug || 'marca'} /> : <div className="cab-empty" />}
+            {(b?.logo_url || b?.avatar_url)
+              ? <img className="cab-img" src={b.logo_url || b.avatar_url} alt={b.slug || 'marca'} />
+              : <div className="cab-empty" />}
           </a>
         ))}
       </div>
