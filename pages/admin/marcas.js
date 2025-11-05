@@ -1,162 +1,302 @@
 // pages/admin/marcas.js
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { supabase } from '../../lib/supabaseClient';
 
-function slugify(s) {
-  return (s || '')
-    .toString()
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)+/g, '');
-}
+const toNumber = (v, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
 
 export default function AdminMarcas() {
-  const [ok, setOk] = useState(false);
-  const [brands, setBrands] = useState([]);
-  const [busyCreate, setBusyCreate] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  async function load() {
-    const { data: bs } = await supabase.from('brands').select('*').order('name');
-    setBrands(bs || []);
-  }
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
 
+  // Form state (create/edit)
+  const emptyForm = {
+    name: '',
+    slug: '',
+    description: '',
+    avatar_url: '',
+    cover_photos_str: '',           // UI helper: una URL por línea (se convierte a array)
+    ship_domicilio: '',
+    ship_sucursal: '',
+    ship_free_from: '',
+    mp_fee: '',
+    mp_alias: '',
+    mp_cvu: '',
+    mp_cbu: '',
+    mp_holder: '',
+  };
+  const [form, setForm] = useState(emptyForm);
+  const [editingSlug, setEditingSlug] = useState(null); // null → create; string → edit
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Guard de rol admin
   useEffect(() => {
     (async () => {
-      const { data: sess } = await supabase.auth.getSession();
-      const u = sess?.session?.user;
-      if (!u) return setOk(false);
+      const { data: { session } } = await supabase.auth.getSession();
+      const u = session?.user;
+      if (!u) { location.replace('/?next=' + encodeURIComponent('/admin/marcas')); return; }
       const { data: a } = await supabase.from('admin_emails').select('email').eq('email', u.email);
       const admin = Array.isArray(a) && a.length > 0;
-      setOk(admin);
-      if (admin) await load();
+      if (!admin) { location.replace('/'); return; }
+      setIsAdmin(true);
+      setReady(true);
     })();
   }, []);
 
-  async function onCreate(e) {
-    e.preventDefault();
-    if (busyCreate) return;
-    setBusyCreate(true);
-    const form = e.currentTarget;
+  // Cargar listado
+  useEffect(() => {
+    if (!isAdmin) return;
+    (async () => { await reload(); })();
+  }, [isAdmin]);
+
+  async function reload() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('brands')
+      .select('name, slug, description, avatar_url, cover_photos, ship_domicilio, ship_sucursal, ship_free_from, mp_fee, mp_alias, mp_cvu, mp_cbu, mp_holder')
+      .order('name', { ascending: true });
+    if (error) { setErr(error.message || String(error)); setList([]); }
+    else setList(Array.isArray(data) ? data : []);
+    setLoading(false);
+  }
+
+  function startCreate() {
+    setEditingSlug(null);
+    setForm(emptyForm);
+    setErr('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function startEdit(brand) {
+    setEditingSlug(brand.slug);
+    setForm({
+      name: brand.name || '',
+      slug: brand.slug || '',
+      description: brand.description || '',
+      avatar_url: brand.avatar_url || '',
+      cover_photos_str: Array.isArray(brand.cover_photos) ? brand.cover_photos.join('\n') : '',
+      ship_domicilio: brand.ship_domicilio ?? '',
+      ship_sucursal: brand.ship_sucursal ?? '',
+      ship_free_from: brand.ship_free_from ?? '',
+      mp_fee: brand.mp_fee ?? '',
+      mp_alias: brand.mp_alias ?? '',
+      mp_cvu: brand.mp_cvu ?? '',
+      mp_cbu: brand.mp_cbu ?? '',
+      mp_holder: brand.mp_holder ?? '',
+    });
+    setErr('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function submitForm(e) {
+    e?.preventDefault?.();
+    setErr('');
+    const covers = form.cover_photos_str
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .slice(0, 10); // límite razonable
+
+    if (!form.name.trim()) return setErr('Ingresá el nombre de la marca.');
+    if (!form.slug.trim()) return setErr('Ingresá el slug (único).');
+
+    const payload = {
+      name: form.name.trim(),
+      slug: form.slug.trim(),
+      description: form.description || null,
+      avatar_url: form.avatar_url || null,
+      cover_photos: covers.length ? covers : null,
+      ship_domicilio: form.ship_domicilio === '' ? null : toNumber(form.ship_domicilio, null),
+      ship_sucursal: form.ship_sucursal === '' ? null : toNumber(form.ship_sucursal, null),
+      ship_free_from: form.ship_free_from === '' ? null : toNumber(form.ship_free_from, null),
+      mp_fee: form.mp_fee === '' ? null : toNumber(form.mp_fee, null),
+      mp_alias: form.mp_alias || null,
+      mp_cvu: form.mp_cvu || null,
+      mp_cbu: form.mp_cbu || null,
+      mp_holder: form.mp_holder || null,
+    };
 
     try {
-      const f = new FormData(form);
-      const name = f.get('name');
-      const slug = slugify(f.get('slug') || name);
-      const desc = f.get('description') || '';
-      const ig = f.get('instagram') || '';
-      const logoFile = f.get('logo');
-      const coverFile = f.get('cover');
-
-      let logo_url = null;
-      if (logoFile && logoFile.size > 0) {
-        const path = `brands/${slug}/${Date.now()}_${logoFile.name}`;
-        const up = await supabase.storage.from('media').upload(path, logoFile);
-        if (up.error) throw new Error(`Error subiendo logo: ${up.error.message}`);
-        const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
-        logo_url = pub?.publicUrl || null;
+      setBusy(true);
+      if (editingSlug) {
+        // update
+        const { error } = await supabase
+          .from('brands')
+          .update(payload)
+          .eq('slug', editingSlug);
+        if (error) throw error;
+      } else {
+        // insert (si slug existe, fallará por unique: OK)
+        const { error } = await supabase
+          .from('brands')
+          .insert(payload);
+        if (error) throw error;
       }
-
-      let cover_url = null;
-      if (coverFile && coverFile.size > 0) {
-        const path = `brands/${slug}/cover_${Date.now()}_${coverFile.name}`;
-        const up = await supabase.storage.from('media').upload(path, coverFile);
-        if (up.error) throw new Error(`Error subiendo portada: ${up.error.message}`);
-        const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
-        cover_url = pub?.publicUrl || null;
-      }
-
-      const { error } = await supabase
-        .from('brands')
-        .insert({ slug, name, description: desc, instagram: ig, logo_url, cover_url });
-
-      if (error) throw new Error(error.message);
-
-      form.reset();
-      alert('Marca creada');
-      await load();
-    } catch (err) {
-      alert(err.message || 'No se pudo crear la marca');
+      await reload();
+      startCreate();
+    } catch (e2) {
+      setErr(e2?.message || String(e2));
     } finally {
-      setBusyCreate(false);
+      setBusy(false);
     }
   }
 
-  async function onSave(e, slug) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    const mp_access_token = f.get('mp_access_token') || null;
-    const mp_public_key = f.get('mp_public_key') || null;
-    const transfer_alias = f.get('transfer_alias') || null;
-    const transfer_titular = f.get('transfer_titular') || null;
-    const ship_domicilio = f.get('ship_domicilio') === '' ? null : Number(f.get('ship_domicilio'));
-    const ship_sucursal = f.get('ship_sucursal') === '' ? null : Number(f.get('ship_sucursal'));
-    const ship_free_from = Number(f.get('ship_free_from') || 0);
-    const mp_fee = f.get('mp_fee') === '' ? null : Number(f.get('mp_fee'));
-
-    const { error } = await supabase
-      .from('brands')
-      .update({
-        mp_access_token, mp_public_key,
-        transfer_alias, transfer_titular,
-        ship_domicilio, ship_sucursal, ship_free_from,
-        mp_fee,
-      })
-      .eq('slug', slug);
-
-    if (error) return alert(`No se pudo guardar: ${error.message}`);
-    alert('Guardado');
+  async function removeBrand(slug) {
+    if (!confirm('¿Eliminar la marca y sus datos asociados? Esta acción no se puede deshacer.')) return;
+    try {
+      setBusy(true);
+      const { error } = await supabase.from('brands').delete().eq('slug', slug);
+      if (error) throw error;
+      await reload();
+      if (editingSlug === slug) startCreate();
+    } catch (e2) {
+      setErr(e2?.message || String(e2));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  if (!ok) return <main className="container"><h1 className="h1">Admin — Marcas</h1><p className="small">Necesitás cuenta admin.</p></main>;
+  const total = useMemo(() => list.length, [list]);
+
+  if (!ready) {
+    return (
+      <main className="container">
+        <div className="card" style={{ padding:16 }}>Verificando acceso…</div>
+      </main>
+    );
+  }
 
   return (
-    <main className="container">
-      <h1 className="h1">Admin — Marcas</h1>
+    <main className="container" style={{ padding: '24px 16px' }}>
+      <h1 className="h1">Admin · Marcas</h1>
 
-      <div className="card">
-        <strong>Crear marca</strong>
-        <form onSubmit={onCreate} className="grid" style={{ gridTemplateColumns: 'repeat(2,1fr)' }}>
-          <div><label>Nombre</label><input className="input" name="name" required /></div>
-          <div><label>Slug (opcional)</label><input className="input" name="slug" placeholder="auto desde nombre" /></div>
-          <div style={{ gridColumn: '1/-1' }}><label>Descripción</label><textarea name="description" className="input" rows="3" /></div>
-          <div><label>Instagram (URL)</label><input className="input" name="instagram" placeholder="https://instagram.com/tu-marca" /></div>
-          <div><label>Logo (archivo)</label><input className="input" type="file" name="logo" accept="image/*" /></div>
-          <div><label>Portada (archivo)</label><input className="input" type="file" name="cover" accept="image/*" /></div>
-          <div style={{ gridColumn: '1/-1' }}>
-            <button className="btn" disabled={busyCreate}>{busyCreate ? 'Creando…' : 'Crear'}</button>
+      {err && (
+        <div className="card" style={{ marginTop: 12, padding:12, borderColor:'rgba(239,68,68,0.25)', background:'rgba(239,68,68,0.08)', color:'#fecaca' }}>
+          {err}
+        </div>
+      )}
+
+      {/* Formulario create/edit */}
+      <form className="card" onSubmit={submitForm} style={{ padding:16, marginTop: 12 }}>
+        <div className="row" style={{ gap: 12 }}>
+          <div style={{ flex: 2 }}>
+            <label className="small">Nombre</label>
+            <input className="input" value={form.name} onChange={e=>setForm(f=>({...f, name: e.target.value}))} required />
           </div>
-        </form>
-        <p className="small">Logo y portada son opcionales; si subís archivos van al bucket público <b>media</b>.</p>
-      </div>
+          <div style={{ flex: 1 }}>
+            <label className="small">Slug</label>
+            <input className="input" value={form.slug} onChange={e=>setForm(f=>({...f, slug: e.target.value}))} required />
+          </div>
+        </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', marginTop: 16 }}>
-        {brands.map(b => (
-          <div key={b.slug} className="card">
-            <div className="row">
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <img src={b.logo_url || '/logo.png'} alt={b.name} style={{ width: 40, height: 40, borderRadius: 20, objectFit: 'cover', border: '1px solid var(--line)' }} />
-                <div>
-                  <strong>{b.name}</strong>
-                  <div className="small">{b.slug}</div>
+        <div className="mt">
+          <label className="small">Descripción</label>
+          <textarea className="input" rows={3} value={form.description} onChange={e=>setForm(f=>({...f, description: e.target.value}))} />
+        </div>
+
+        <div className="mt row" style={{ gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <label className="small">Avatar (URL)</label>
+            <input className="input" value={form.avatar_url} onChange={e=>setForm(f=>({...f, avatar_url: e.target.value}))} placeholder="https://..." />
+          </div>
+          <div style={{ flex: 2 }}>
+            <label className="small">Portadas (una URL por línea, rotan cada 10s)</label>
+            <textarea className="input" rows={3} value={form.cover_photos_str} onChange={e=>setForm(f=>({...f, cover_photos_str: e.target.value}))} placeholder={'https://...\nhttps://...\nhttps://...'} />
+          </div>
+        </div>
+
+        <div className="mt row" style={{ gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <label className="small">Envío a domicilio ($)</label>
+            <input className="input" type="number" value={form.ship_domicilio} onChange={e=>setForm(f=>({...f, ship_domicilio: e.target.value}))} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="small">Envío a sucursal ($)</label>
+            <input className="input" type="number" value={form.ship_sucursal} onChange={e=>setForm(f=>({...f, ship_sucursal: e.target.value}))} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="small">Gratis desde ($)</label>
+            <input className="input" type="number" value={form.ship_free_from} onChange={e=>setForm(f=>({...f, ship_free_from: e.target.value}))} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="small">Recargo MP (%)</label>
+            <input className="input" type="number" value={form.mp_fee} onChange={e=>setForm(f=>({...f, mp_fee: e.target.value}))} />
+          </div>
+        </div>
+
+        <div className="mt row" style={{ gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <label className="small">MP Alias</label>
+            <input className="input" value={form.mp_alias} onChange={e=>setForm(f=>({...f, mp_alias: e.target.value}))} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="small">CVU</label>
+            <input className="input" value={form.mp_cvu} onChange={e=>setForm(f=>({...f, mp_cvu: e.target.value}))} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="small">CBU</label>
+            <input className="input" value={form.mp_cbu} onChange={e=>setForm(f=>({...f, mp_cbu: e.target.value}))} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="small">Titular</label>
+            <input className="input" value={form.mp_holder} onChange={e=>setForm(f=>({...f, mp_holder: e.target.value}))} />
+          </div>
+        </div>
+
+        <div className="mt row" style={{ gap: 12 }}>
+          <button className="btn" type="submit" disabled={busy}>
+            {busy ? 'Guardando…' : (editingSlug ? 'Guardar cambios' : 'Crear marca')}
+          </button>
+          {editingSlug && (
+            <button className="btn" type="button" onClick={startCreate} disabled={busy}>Cancelar edición</button>
+          )}
+        </div>
+      </form>
+
+      {/* Listado */}
+      <div className="card" style={{ padding:16, marginTop: 16 }}>
+        <div className="row" style={{ alignItems:'center', justifyContent:'space-between' }}>
+          <strong>Marcas ({total})</strong>
+          <button className="btn" onClick={startCreate}>Nueva marca</button>
+        </div>
+
+        {loading ? (
+          <div className="mt small">Cargando…</div>
+        ) : (
+          <div className="mt" style={{ display: 'grid', gap: 8 }}>
+            {list.map(b => (
+              <div key={b.slug} className="row" style={{ alignItems:'center', gap:12, border:'1px solid var(--line)', borderRadius:12, padding:8 }}>
+                <div className="row" style={{ gap:10, alignItems:'center', flex:1 }}>
+                  {b.avatar_url ? <img alt="" src={b.avatar_url} style={{ width:44, height:44, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)'}}/> : <div style={{ width:44, height:44, borderRadius:8, border:'1px solid var(--line)', background:'#0f1118'}}/>}
+                  <div style={{ display:'flex', flexDirection:'column' }}>
+                    <strong>{b.name}</strong>
+                    <span className="small" style={{ color:'var(--muted)' }}>{b.slug}</span>
+                  </div>
+                </div>
+                <div className="small" style={{ width:160 }}>
+                  <div>Dom: ${b.ship_domicilio ?? 0}</div>
+                  <div>Suc: ${b.ship_sucursal ?? 0}</div>
+                </div>
+                <div className="small" style={{ width:200 }}>
+                  <div>Gratis desde: ${b.ship_free_from ?? 0}</div>
+                  <div>MP %: {b.mp_fee ?? 0}</div>
+                </div>
+                <div className="row" style={{ gap:8 }}>
+                  <button className="btn" onClick={()=>startEdit(b)}>Editar</button>
+                  <button className="btn" onClick={()=>removeBrand(b.slug)} style={{ borderColor:'rgba(239,68,68,0.4)' }}>Eliminar</button>
                 </div>
               </div>
-              <a className="badge" href={`/marcas/${b.slug}`}>Ver</a>
-            </div>
-
-            <form onSubmit={(e) => onSave(e, b.slug)} className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 12 }}>
-              <div><label>MP Access Token</label><input className="input" name="mp_access_token" defaultValue={b.mp_access_token || ''} /></div>
-              <div><label>MP Public Key (opcional)</label><input className="input" name="mp_public_key" defaultValue={b.mp_public_key || ''} /></div>
-              <div><label>Alias/CBU</label><input className="input" name="transfer_alias" defaultValue={b.transfer_alias || ''} /></div>
-              <div><label>Titular</label><input className="input" name="transfer_titular" defaultValue={b.transfer_titular || ''} /></div>
-              <div><label>Envío a domicilio (ARS)</label><input className="input" type="number" name="ship_domicilio" defaultValue={b.ship_domicilio ?? ''} placeholder="vacío = desactivado" /></div>
-              <div><label>Envío a sucursal (ARS)</label><input className="input" type="number" name="ship_sucursal" defaultValue={b.ship_sucursal ?? ''} placeholder="vacío = desactivado" /></div>
-              <div><label>Gratis desde (ARS)</label><input className="input" type="number" name="ship_free_from" defaultValue={b.ship_free_from || 0} /></div>
-              <div><label>% MP (vacío = global 10)</label><input className="input" type="number" name="mp_fee" defaultValue={b.mp_fee ?? ''} /></div>
-              <div style={{ gridColumn: '1/-1' }}><button className="btn">Guardar</button></div>
-            </form>
+            ))}
+            {list.length === 0 && <div className="small">No hay marcas.</div>}
           </div>
-        ))}
+        )}
       </div>
     </main>
   );
