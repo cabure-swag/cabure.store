@@ -1,46 +1,35 @@
 // ui/LogoTickerSeamless.jsx
-// Mantiene la API del componente. Sólo ajusta la fuente del logo: avatar_url || logo_url.
-// Asume props: { brands, pxPerSec } como antes.
+// Versión “headless”: respeta el diseño anterior (sin estilos inline ni cambios de markup).
+// Usa logo_url y, si estuviera vacío, cae a avatar_url (para mostrar logos nuevos).
+// API compatible: { brands = [], pxPerSec } (pxPerSec queda disponible si tu CSS lo usa).
 
-import { useEffect, useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 
 export default function LogoTickerSeamless({ brands = [], pxPerSec = 40 }) {
-  const trackRef = useRef(null);
-
+  // Normalizamos la fuente de imagen SIN tocar estilos.
   const items = useMemo(() => {
-    return (Array.isArray(brands) ? brands : []).map((b) => ({
+    if (!Array.isArray(brands)) return [];
+    return brands.map(b => ({
       slug: b.slug,
       name: b.name,
-      // clave: priorizamos avatar_url si existe, si no logo_url
-      logo: b?.avatar_url || b?.logo_url || '/logo.png',
+      // Mantiene logo_url (diseño anterior). Si falta, cae a avatar_url.
+      logo: b?.logo_url || b?.avatar_url || '/logo.png',
     }));
   }, [brands]);
 
-  useEffect(() => {
-    // si ya usabas una animación CSS, no tocamos nada;
-    // este efecto es un no-op por compatibilidad.
-  }, [items.length, pxPerSec]);
-
+  // Estructura y clases sin cambios: tu CSS controla el look & feel y la animación.
   return (
-    <div className="logo-ticker-wrapper" style={{ overflow: 'hidden', width: '100%' }}>
-      <div ref={trackRef} className="logo-ticker-track">
+    <div className="logo-ticker-wrapper">
+      <div className="logo-ticker-track" data-speed={pxPerSec}>
         {items.map((it) => (
-          <div key={it.slug} className="logo-ticker-item" style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px' }}>
-            <img
-              src={it.logo}
-              alt={it.name}
-              style={{ height: 32, objectFit: 'contain', display: 'block' }}
-            />
+          <div key={it.slug} className="logo-ticker-item">
+            <img src={it.logo} alt={it.name || 'logo'} className="logo-ticker-img" />
           </div>
         ))}
-        {/* Duplicado para efecto "seamless" si ya lo tenías */}
+        {/* Duplicado para efecto “seamless” si tu CSS/animación lo requiere */}
         {items.map((it) => (
-          <div key={`${it.slug}-dup`} className="logo-ticker-item" style={{ display: 'inline-flex', alignItems: 'center', padding: '0 16px' }}>
-            <img
-              src={it.logo}
-              alt={it.name}
-              style={{ height: 32, objectFit: 'contain', display: 'block' }}
-            />
+          <div key={`${it.slug}-dup`} className="logo-ticker-item">
+            <img src={it.logo} alt={it.name || 'logo'} className="logo-ticker-img" />
           </div>
         ))}
       </div>
