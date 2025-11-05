@@ -1,8 +1,7 @@
 // ui/LogoTickerSeamless.jsx
 // Banda de logos con diseño original (clases .cab-*) y animación seamless.
 // Usa logo_url y, si no hay, avatar_url (para soportar el sistema nuevo de uploads).
-// Ahora, si la marca tiene slug, el logo linkea a /marcas/[slug].
-// (Se mantienen exactamente las clases y estilos.)
+// Ahora cada logo con slug navega a /marcas/[slug].
 
 import Link from 'next/link';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -68,7 +67,7 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
       const dx = -pxPerSec * dt;
       S.current.x += dx;
 
-      const W = (S.current.w = t1.scrollWidth || 1);
+      const W = S.current.w = t1.scrollWidth || 1;
       if (S.current.x <= -W) {
         S.current.x += W;
       }
@@ -90,12 +89,14 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
     return src;
   };
 
-  // Render de un slot (igual diseño; si hay slug, es Link; si no, div)
+  // Slot: si hay slug → Link, si no → div. Se mantienen clases .cab-*
   const Slot = ({ b, i, track }) => {
     const key = `${track}-${b?.slug ?? i}`;
-    const content = (b && (b.logo_url || b.avatar_url))
-      ? <img src={srcFor(b)} alt={b?.name || 'logo'} className="cab-img" />
-      : <div className="cab-empty" />;
+    const content = (b && (b.logo_url || b.avatar_url)) ? (
+      <img src={srcFor(b)} alt={b?.name || 'logo'} className="cab-img" />
+    ) : (
+      <div className="cab-empty" />
+    );
 
     if (b?.slug) {
       return (
@@ -151,7 +152,7 @@ export default function LogoTickerSeamless({ brands = [], pxPerSec = 36 }) {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          text-decoration: none; /* mantiene el look siendo <a> */
+          text-decoration: none; /* para <a> */
         }
         .cab-img {
           display: block;
