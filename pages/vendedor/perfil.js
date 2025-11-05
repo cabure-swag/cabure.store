@@ -63,7 +63,7 @@ export default function VendedorPerfil() {
       ]);
 
       let query = supabase.from('brands')
-        .select('name, slug, description, avatar_url, cover_photos, ship_domicilio, ship_sucursal, ship_free_from, mp_fee');
+        .select('name, slug, description, logo_url, cover_photos, ship_domicilio, ship_sucursal, ship_free_from, mp_fee');
       if (!admin && brandSlugs.size > 0) {
         query = query.in('slug', Array.from(brandSlugs));
       }
@@ -83,7 +83,7 @@ export default function VendedorPerfil() {
     (async () => {
       const { data, error } = await supabase
         .from('brands')
-        .select('name, slug, description, avatar_url, cover_photos, ship_domicilio, ship_sucursal, ship_free_from, mp_fee')
+        .select('name, slug, description, logo_url, cover_photos, ship_domicilio, ship_sucursal, ship_free_from, mp_fee')
         .eq('slug', selected)
         .single();
       if (error) { setErr(error.message || String(error)); setBrand(null); return; }
@@ -139,9 +139,9 @@ export default function VendedorPerfil() {
       const path = pathAvatar(brand.slug, ext);
       await uploadFile(file, path, true);
       const url = publicUrl(path);
-      const { error } = await supabase.from('brands').update({ avatar_url: url }).eq('slug', brand.slug);
+      const { error } = await supabase.from('brands').update({ logo_url: url }).eq('slug', brand.slug);
       if (error) throw error;
-      setBrand(b => ({ ...b, avatar_url: url }));
+      setBrand(b => ({ ...b, logo_url: url }));
     } catch (e2) {
       setErr(e2?.message || String(e2));
     } finally {
@@ -287,10 +287,10 @@ export default function VendedorPerfil() {
             <div style={{ flex: '0 0 120px' }}>
               <div className="small">Avatar</div>
               <div style={{ width: 120, height: 120, borderRadius: 12, border:'1px solid var(--line)', overflow:'hidden', background:'#0f1118' }}>
-                {brand.avatar_url ? (
-                  <img alt="" src={brand.avatar_url} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+                {brand.logo_url ? (
+                  <img alt="" src={brand.logo_url} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
                 ) : (
-                  <div style={{ width:'100%', height:'100%', display:'grid', placeItems:'center', color:'var(--muted)' }}>Sin avatar</div>
+                  <div style={{ width:'100%', height:'100%', display:'grid', placeItems:'center', color:'var(--muted)' }}>Sin imagen</div>
                 )}
               </div>
               <div className="mt">
