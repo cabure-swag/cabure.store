@@ -55,7 +55,7 @@ export default function AdminMarcas() {
     mp_cbu: '',
     mp_holder: '',
     // visuales (se muestran desde la DB al editar/crear)
-    avatar_url: '',
+    logo_url: '',
     cover_photos: [],
   };
   const [form, setForm] = useState(emptyForm);
@@ -90,7 +90,7 @@ export default function AdminMarcas() {
     setLoading(true);
     const { data, error } = await supabase
       .from('brands')
-      .select('name, slug, description, avatar_url, cover_photos, ship_domicilio, ship_sucursal, ship_free_from, mp_fee, mp_alias, mp_cvu, mp_cbu, mp_holder')
+      .select('name, slug, description, logo_url, cover_photos, ship_domicilio, ship_sucursal, ship_free_from, mp_fee, mp_alias, mp_cvu, mp_cbu, mp_holder')
       .order('name', { ascending: true });
     if (error) { setErr(error.message || String(error)); setList([]); }
     else setList(Array.isArray(data) ? data : []);
@@ -121,7 +121,7 @@ export default function AdminMarcas() {
       mp_cvu: brand.mp_cvu ?? '',
       mp_cbu: brand.mp_cbu ?? '',
       mp_holder: brand.mp_holder ?? '',
-      avatar_url: brand.avatar_url || '',
+      logo_url: brand.logo_url || '',
       cover_photos: Array.isArray(brand.cover_photos) ? brand.cover_photos : [],
     });
     setErr('');
@@ -152,7 +152,7 @@ export default function AdminMarcas() {
       // imágenes se actualizan en handlers de upload,
       // pero si estamos creando una marca nueva y el admin ya subió algo (con slug),
       // esto preserva lo que hay en form.*
-      avatar_url: form.avatar_url || null,
+      logo_url: form.logo_url || null,
       cover_photos: Array.isArray(form.cover_photos) && form.cover_photos.length ? form.cover_photos : null,
     };
 
@@ -203,15 +203,15 @@ export default function AdminMarcas() {
       const path = pathAvatar(slug, ext);
       await uploadFile(file, path, true);
       const url = publicUrl(path);
-      // Persistir en DB
-      const { error } = await supabase.from('brands').update({ avatar_url: url }).eq('slug', slug);
+      // Persistir en DB (logo_url como imagen principal)
+      const { error } = await supabase.from('brands').update({ logo_url: url }).eq('slug', slug);
       if (error) throw error;
 
       // Refrescar form/lista si corresponde
-      setForm(f => ({ ...f, avatar_url: url }));
+      setForm(f => ({ ...f, logo_url: url }));
       if (editingSlug === slug) {
         // reflejar en memoria del listado para UX instantánea
-        setList(prev => prev.map(b => b.slug === slug ? { ...b, avatar_url: url } : b));
+        setList(prev => prev.map(b => b.slug === slug ? { ...b, logo_url: url } : b));
       }
     } catch (e2) {
       setErr(e2?.message || String(e2));
@@ -334,10 +334,10 @@ export default function AdminMarcas() {
           <div style={{ flex: '0 0 140px' }}>
             <label className="small">Avatar</label>
             <div style={{ width: 120, height: 120, borderRadius: 12, border:'1px solid var(--line)', overflow:'hidden', background:'#0f1118' }}>
-              {form.avatar_url ? (
-                <img alt="" src={form.avatar_url} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+              {form.logo_url ? (
+                <img alt="" src={form.logo_url} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
               ) : (
-                <div style={{ width:'100%', height:'100%', display:'grid', placeItems:'center', color:'var(--muted)' }}>Sin avatar</div>
+                <div style={{ width:'100%', height:'100%', display:'grid', placeItems:'center', color:'var(--muted)' }}>Sin imagen</div>
               )}
             </div>
             <div className="mt">
@@ -433,7 +433,7 @@ export default function AdminMarcas() {
             {list.map(b => (
               <div key={b.slug} className="row" style={{ alignItems:'center', gap:12, border:'1px solid var(--line)', borderRadius:12, padding:8 }}>
                 <div className="row" style={{ gap:10, alignItems:'center', flex:1 }}>
-                  {b.avatar_url ? <img alt="" src={b.avatar_url} style={{ width:44, height:44, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)'}}/> : <div style={{ width:44, height:44, borderRadius:8, border:'1px solid var(--line)', background:'#0f1118'}}/>}
+                  {b.logo_url ? <img alt="" src={b.logo_url} style={{ width:44, height:44, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)'}}/> : <div style={{ width:44, height:44, borderRadius:8, border:'1px solid var(--line)', background:'#0f1118'}}/>}
                   <div style={{ display:'flex', flexDirection:'column' }}>
                     <strong>{b.name}</strong>
                     <span className="small" style={{ color:'var(--muted)' }}>{b.slug}</span>
