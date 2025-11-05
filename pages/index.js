@@ -1,94 +1,145 @@
 // pages/index.js
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Head from 'next/head';
 import { supabase } from '../lib/supabaseClient';
-import HeroRotator from '../components/HeroRotator';
+import LogoTickerSeamless from '../ui/LogoTickerSeamless';
 
-/**
- * Home: muestra marcas tomando avatar y portadas si existen.
- * Mantiene contenedores/clases; sólo agrega data binding a imágenes.
- */
 export default function HomePage() {
   const [brands, setBrands] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState('');
 
   useEffect(() => {
     (async () => {
-      setLoading(true);
-      setErr('');
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('brands')
-        .select('name, slug, description, avatar_url, cover_photos')
+        .select('slug,name,description,instagram,logo_url,cover_url,avatar_url,cover_photos')
         .order('name', { ascending: true });
-
-      if (error) {
-        setErr(error.message || String(error));
-        setBrands([]);
-      } else {
-        setBrands(Array.isArray(data) ? data : []);
-      }
-      setLoading(false);
+      setBrands(data || []);
     })();
   }, []);
 
   return (
-    <main className="container" style={{ padding: '24px 16px' }}>
-      <h1 className="h1">CABURE.STORE</h1>
+    <>
+      <Head>
+        <title>CABURE.STORE</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </Head>
 
-      {err && (
-        <div className="card" style={{ marginTop:12, padding:12, borderColor:'rgba(239,68,68,0.25)', background:'rgba(239,68,68,0.08)', color:'#fecaca' }}>
-          {err}
-        </div>
-      )}
+      {/* Banda de logos */}
+      <section>
+        <LogoTickerSeamless brands={brands} pxPerSec={40} />
+      </section>
 
-      {loading && (
-        <div className="card" style={{ marginTop:12, padding:12 }}>
-          Cargando marcas…
-        </div>
-      )}
+      {/* Grid de marcas */}
+      <main className="container" style={{ paddingTop: 18 }}>
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18 }}>
+          {brands.map((b) => (
+            <Link key={b.slug} href={`/marcas/${b.slug}`} className="brandCard" style={{ textDecoration: 'none' }}>
+              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div className="cover" style={{ position: 'relative', height: 220, background: '#0e0f16' }}>
+                  <img
+                    src={(Array.isArray(b.cover_photos) && b.cover_photos[0]) || b.cover_url || b.logo_url || '/logo.png'}
+                    alt={b.name}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(.85)' }}
+                  />
 
-      {!loading && (
-        <section className="mt">
-          {/* Grid existente: cada marca en una card */}
-          <div className="grid" style={{ gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(260px,1fr))' }}>
-            {brands.map((b) => (
-              <Link key={b.slug} href={`/marca/${b.slug}`} className="card" style={{ textDecoration:'none', overflow:'hidden' }}>
-                {/* Hero rotador si hay cover_photos */}
-                {Array.isArray(b.cover_photos) && b.cover_photos.length > 0 ? (
-                  <HeroRotator images={b.cover_photos} alt={b.name} height={180} />
-                ) : (
-                  // Si no tiene portadas, usamos un placeholder (no toca estilos globales)
-                  <div style={{
-                    width: '100%', height: 180, borderRadius: 12, border:'1px solid var(--line)',
-                    background:'#0f1118'
-                  }} />
-                )}
-
-                <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:12 }}>
-                  {/* Avatar si existe */}
-                  {b.avatar_url ? (
+                  {/* Overlay inferior con logo + nombre + IG */}
+                  <div
+                    className="overlay"
+                    style={{
+                      position: 'absolute',
+                      left: 12,
+                      right: 12,
+                      bottom: 12,
+                      display: 'flex',
+                      gap: 12,
+                      alignItems: 'center',
+                      background: 'rgba(8,9,14,.45)',
+                      borderRadius: 12,
+                      padding: 8,
+                      border: '1px solid var(--line)',
+                      backdropFilter: 'blur(6px)',
+                    }}
+                  >
                     <img
-                      src={b.avatar_url}
-                      alt={`${b.name} avatar`}
-                      style={{ width:44, height:44, borderRadius:8, objectFit:'cover', border:'1px solid var(--line)' }}
+                      src={b.avatar_url || b.logo_url || '/logo.png'}
+                      alt={b.name}
+                      style={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 28,
+                        objectFit: 'cover',
+                        border: '1px solid var(--line)',
+                      }}
                     />
-                  ) : (
-                    <div style={{ width:44, height:44, borderRadius:8, border:'1px solid var(--line)', background:'#10121a' }} />
-                  )}
-                  <div style={{ display:'flex', flexDirection:'column' }}>
-                    <strong>{b.name}</strong>
-                    {b.description && <span className="small" style={{ color:'var(--muted)' }}>{b.description}</span>}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="h2" style={{ margin: 0, fontSize: 18 }}>{b.name}</div>
+                      {b.description && (
+                        <div
+                          className="small"
+                          style={{
+                            color: 'var(--muted)',
+                            marginTop: 2,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                          title={b.description}
+                        >
+                          {b.description}
+                        </div>
+                      )}
+                    </div>
+
+                    {b.instagram && (
+                      <a
+                        className="igBtn"
+                        onClick={(e) => e.stopPropagation()}
+                        href={
+                          b.instagram.startsWith('http')
+                            ? b.instagram
+                            : `https://instagram.com/${b.instagram.replace(/^@/, '')}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '8px 12px',
+                          borderRadius: 999,
+                          border: '1px solid rgba(124, 58, 237, 0.55)',
+                          background: 'rgba(124, 58, 237, 0.12)',
+                          color: '#d4bfff',
+                          fontWeight: 600,
+                          fontSize: 14,
+                          transition: 'transform 140ms ease, box-shadow 140ms ease',
+                          textDecoration:'none',
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        <span className="small">@{b.instagram.replace(/^https?:\/\/(www\.)?instagram\.com\//, '').replace(/\/$/, '')}</span>
+                        <svg viewBox="0 0 448 512" width="16" height="16" aria-hidden="true">
+                          <path fill="currentColor"
+                            d="M224,202.66A53.34,53.34,0,1,0,277.33,256,53.38,53.38,0,0,0,224,202.66Zm124.71-41a54,54,0,0,0-30.44-30.44C297.77,120,224,120,224,120s-73.77,0-94.27,11.22A54,54,0,0,0,99.29,161.7C88,182.2,88,256,88,256s0,73.77,11.22,94.27a54,54,0,0,0,30.44,30.44C150.23,392,224,392,224,392s73.77,0,94.27-11.22a54,54,0,0,0,30.44-30.44C360,329.77,360,256,360,256S360,182.2,348.71,161.7ZM224,338a82,82,0,1,1,82-82A82,82,0,0,1,224,338Zm85.33-148.88a19.2,19.2,0,1,1,19.2-19.2A19.19,19.19,0,0,1,309.33,189.12Z"/>
+                        </svg>
+                      </a>
+                    )}
                   </div>
                 </div>
-              </Link>
-            ))}
-            {brands.length === 0 && (
-              <div className="card" style={{ padding:12 }}>No hay marcas aún.</div>
-            )}
-          </div>
-        </section>
-      )}
-    </main>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </main>
+
+      <style jsx>{`
+        :global(.igBtn)
+        :global(.igBtn:focus) { outline: none; }
+        :global(.brandCard .card:hover .overlay) {
+          box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.35);
+        }
+      `}</style>
+    </>
   );
 }
