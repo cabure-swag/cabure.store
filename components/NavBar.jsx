@@ -1,10 +1,7 @@
 // components/NavBar.jsx
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
-
-function safeDecode(v){ try{ return decodeURIComponent(v); }catch{ return v; } }
 
 export default function NavBar(){
   const [open, setOpen] = useState(false);
@@ -12,8 +9,8 @@ export default function NavBar(){
   const [isAdmin, setIsAdmin] = useState(false);
   const [hasVendor, setHasVendor] = useState(false);
   const dropRef = useRef(null);
-  const router = useRouter();
 
+  // Carga sesión + escucha cambios de auth + aplica ?next= tras login
   useEffect(() => {
     let sub;
     (async () => {
@@ -21,10 +18,24 @@ export default function NavBar(){
       const u = session?.user || null;
       setUser(u);
       if (u) await loadRoles(u);
+
+      // Si ya estamos logueados y hay ?next= en la URL, redirigimos
+      if (u) {
+        const next = readNextFromURL();
+        if (next) safeRedirect(next);
+      }
+
       sub = supabase.auth.onAuthStateChange(async (_evt, sess) => {
         const uu = sess?.user || null;
         setUser(uu);
-        if (uu) await loadRoles(uu); else { setIsAdmin(false); setHasVendor(false); }
+        if (uu) {
+          await loadRoles(uu);
+          const next = readNextFromURL();
+          if (next) safeRedirect(next);
+        } else {
+          setIsAdmin(false);
+          setHasVendor(false);
+        }
       });
     })();
     return () => { sub?.data?.subscription?.unsubscribe?.(); };
@@ -35,11 +46,34 @@ export default function NavBar(){
       supabase.from('admin_emails').select('email').eq('email', u.email),
       supabase.from('vendor_brands').select('brand_slug').eq('user_id', u.id),
     ]);
-    const admin = (a||[]).length>0;
+    const admin = Array.isArray(a) && a.length > 0;
     setIsAdmin(admin);
-    setHasVendor(admin || (vb||[]).length>0);
+    setHasVendor((Array.isArray(vb) && vb.length > 0) || admin);
   }
 
+  // Lee ?next= de la URL actual
+  function readNextFromURL(){
+    if (typeof window === 'undefined') return null;
+    try {
+      const url = new URL(window.location.href);
+      const next = url.searchParams.get('next');
+      return next && typeof next === 'string' ? next : null;
+    } catch { return null; }
+  }
+
+  // Sanitiza y redirige internamente
+  function safeRedirect(nextRaw){
+    if (typeof window === 'undefined' || !nextRaw) return;
+    // Solo rutas internas que empiecen con "/"
+    const next = String(nextRaw);
+    if (!next.startsWith('/')) return;
+    // Evitar inyecciones tipo "//evil.com"
+    if (next.startsWith('//')) return;
+    // Redirigir y limpiar ?next de la URL actual
+    window.location.replace(next);
+  }
+
+  // Cerrar dropdown al click fuera
   useEffect(() => {
     const onClick = (e) => {
       if (!dropRef.current) return;
@@ -49,20 +83,20 @@ export default function NavBar(){
     return () => document.removeEventListener('click', onClick);
   }, []);
 
-  // ⬇️ Único cambio importante: login que guarda destino y usa /auth/bridge
+  // Sign-in Google preservando ?next=
   async function signInGoogle(){
     try{
-      const url = new URL(window.location.href);
-      const rawNext = url.searchParams.get('next');
-      // Prioriza ?next; si no existe, usa la ruta actual
-      const nextTo = rawNext ? safeDecode(rawNext) : (router.asPath || '/');
-      window.sessionStorage.setItem('returnTo', nextTo);
+      const origin = typeof window !== 'undefined' ? window.location.origin : undefined;
+      let next = '';
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        next = url.searchParams.get('next') || window.location.pathname || '/';
+      }
+      const redirectTo = origin ? `${origin}?next=${encodeURIComponent(next)}` : undefined;
 
       await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/bridge`
-        }
+        options: { redirectTo }
       });
     }catch(err){
       alert('No se pudo iniciar sesión: ' + (err?.message || err));
@@ -77,10 +111,12 @@ export default function NavBar(){
         </Link>
 
         <nav className="menu">
+          {/* Antes de iniciar sesión: botón de login */}
           {!user && (
             <button className="btn" onClick={signInGoogle}>Iniciar sesión con Google</button>
           )}
 
+          {/* Después de iniciar sesión: avatar + menú */}
           {user && (
             <div className="dropdown" ref={dropRef}>
               <button
@@ -106,10 +142,7 @@ export default function NavBar(){
                   <Link role="menuitem" href="/soporte">Soporte</Link>
                   {hasVendor && <Link role="menuitem" href="/vendedor">Vendedor</Link>}
                   {isAdmin && <Link role="menuitem" href="/admin">Admin</Link>}
-                  <button
-                    role="menuitem"
-                    onClick={() => supabase.auth.signOut().then(()=>location.href='/')}
-                  >
+                  <button role="menuitem" onClick={() => supabase.auth.signOut().then(()=>location.href='/')}>
                     Cerrar sesión
                   </button>
                 </div>
@@ -119,26 +152,58 @@ export default function NavBar(){
         </nav>
       </div>
 
-      {/* ⚠️ Mantengo tus estilos globales tal como los tenías */}
+      {/* Estilos (se mantienen las clases existentes para no cambiar el diseño) */}
       <style jsx global>{`
-        .nav { position: sticky; top: 0; z-index: 50; background: #0b0d14; border-bottom: 1px solid var(--line); }
-        .nav-inner { max-width: 1200px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 12px; }
-        .brand{ font-weight: 800; letter-spacing: .04em; line-height: 1; font-size: 20px; color: var(--text); text-decoration: none; padding: 6px 10px 6px 0; transform: translateY(1px); }
-        .brand.cab-hover{ text-decoration: none; color: var(--text); display: inline-block; transition: color .12s ease; }
-        .brand.cab-hover:hover{ background: linear-gradient(90deg, #7c3aed, #60a5fa, #7c3aed); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; color: transparent; animation: cabGradientMove 8s linear infinite; }
-        @keyframes cabGradientMove { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
-        .menu{ display:flex; align-items:center; gap: 8px; }
-        .btn{ border: 1px solid var(--line); background: #141826; color: var(--text); padding: 8px 12px; border-radius: 10px; cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
-        .btn:hover{ transform: translateY(-1px); box-shadow: 0 6px 18px rgba(124,58,237,.16); }
+        .nav {
+          position: sticky; top: 0; z-index: 40;
+          background: rgba(9,11,16,.85); backdrop-filter: blur(6px);
+          border-bottom: 1px solid var(--line);
+        }
+        .nav-inner{
+          display: flex; align-items: center; justify-content: space-between;
+          height: 64px; padding: 0 16px; max-width: 1200px; margin: 0 auto;
+        }
+        .brand{ font-weight: 800; letter-spacing: .05em; color: var(--text); text-decoration: none; }
+        .cab-hover:hover{ opacity: .9; }
+
+        .menu{ display: flex; align-items: center; gap: 12px; }
+        .btn{
+          font-weight: 600; padding: 8px 12px; border-radius: 10px;
+          background: #1b1f2e; border: 1px solid var(--line); color: var(--text);
+        }
+        .btn:hover{ background: #21263a; }
+
         .dropdown{ position: relative; }
-        .profile-btn{ display:inline-flex; align-items:center; gap:8px; padding:6px 8px 6px 6px; border:1px solid var(--line); background:#0f1118; border-radius:12px; }
+        .profile-btn{
+          display: inline-flex; align-items: center; gap: 8px;
+          background: transparent; border: 1px solid var(--line);
+          padding: 4px 6px; border-radius: 999px; cursor: pointer;
+        }
         .profile-btn.open .chev{ transform: rotate(180deg); }
-        .avatar-lg{ width: 52px !important; height: 52px !important; border-radius: 999px; border: 1px solid var(--line); object-fit: cover; display: block; }
-        .avatar-placeholder{ display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 999px; border: 1px solid var(--line); background: #10121a; font-size: 18px; }
+        .avatar-lg{
+          width: 52px; height: 52px; border-radius: 999px; object-fit: cover;
+          display: block;
+        }
+        .avatar-placeholder{
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 52px; height: 52px; border-radius: 999px;
+          border: 1px solid var(--line); background: #10121a; font-size: 18px;
+        }
         .chev{ color: var(--muted); transition: transform .15s ease; }
-        .dropdown-menu{ position: absolute; right: 0; top: calc(100% + 8px); min-width: 220px; background: #0f1118; border: 1px solid var(--line); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 6px; z-index: 9999; box-shadow: 0 14px 36px rgba(5,7,12,.35); }
-        .dropdown-menu a, .dropdown-menu button{ text-align: left; border: 1px solid transparent; background: transparent; color: var(--text); padding: 8px 10px; border-radius: 10px; text-decoration: none; cursor: pointer; }
-        .dropdown-menu a:hover, .dropdown-menu button:hover{ background: #141a2a; border-color: rgba(124,58,237,.25); }
+
+        .dropdown-menu{
+          position: absolute; right: 0; top: calc(100% + 8px);
+          min-width: 220px; background: #0f1118; border: 1px solid var(--line);
+          border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 6px;
+          z-index: 9999; box-shadow: 0 14px 36px rgba(5,7,12,.35);
+        }
+        .dropdown-menu a, .dropdown-menu button{
+          text-align: left; border: 1px solid transparent; background: transparent;
+          color: var(--text); padding: 8px 10px; border-radius: 10px; text-decoration: none; cursor: pointer;
+        }
+        .dropdown-menu a:hover, .dropdown-menu button:hover{
+          background: #141a2a; border-color: rgba(124,58,237,.25);
+        }
       `}</style>
     </header>
   );
