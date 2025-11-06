@@ -85,7 +85,7 @@ export default function Checkout() {
     return pct < 0 ? 0 : pct;
   }, [brand]);
 
-  // aplica sobre (subtotal + envío)
+  // recargo aplicado sobre (subtotal + envío)
   const mpFee = useMemo(() => {
     if (pay !== 'mp') return 0;
     const base = subtotal + shipCost;
@@ -137,6 +137,7 @@ export default function Checkout() {
       const buyerEmail = u.email || null;
 
       if (pay === 'mp') {
+        // Ítems para MP
         const mpItems = cart.map(c => ({
           id: String(c.id ?? ''),
           title: String(c.name ?? 'Item'),
@@ -147,18 +148,54 @@ export default function Checkout() {
           mpItems.push({ id: 'shipping', title: 'Envío', quantity: 1, unit_price: toNumber(shipCost) });
         }
 
+        // ⬇️ DRAFT que el webhook usará para crear el pedido + chat al aprobarse el pago
+        const orderDraft = {
+          shipping,                      // 'domicilio' | 'sucursal'
+          ship_name: shipName,
+          buyer_email: buyerEmail,
+          // domicilio:
+          ship_street: street || null,
+          ship_number: number || null,
+          ship_floor: floor || null,
+          ship_apartment: apartment || null,
+          ship_city: city || null,
+          ship_state: state || null,
+          ship_zip: zip || null,
+          // sucursal:
+          branch_id: branchId || null,
+          branch_name: branchName || null,
+          branch_address: branchAddress || null,
+          branch_city: branchCity || null,
+          branch_state: branchState || null,
+          branch_zip: branchZip || null,
+          // ítems y totales (también por compatibilidad de nombres):
+          items: cart.map(c => ({
+            id: c.id,
+            name: c.name,
+            price: toNumber(c.price),
+            qty: toNumber(c.qty, 1),
+            unit_price: toNumber(c.price),
+            quantity: toNumber(c.qty, 1),
+          })),
+          subtotal,
+          mp_fee_pct: mpPct,
+          total: subtotal + shipCost + Math.round((subtotal + shipCost) * (mpPct / 100)),
+        };
+
         const resp = await fetch('/api/mp/create-preference', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             brand_slug: slug,
             items: mpItems,
+            shipping: shipCost,                 // ⬅️ ahora enviamos el costo de envío
             payer: { email: buyerEmail, name: shipName },
-            buyer_id: u.id
+            buyer_id: u.id,
+            order_draft: orderDraft,            // ⬅️ y el borrador de pedido
           })
         });
 
-        // 👇️ si hay texto plano o JSON, lo mostramos igual
+        // Manejamos texto plano o JSON para errores claros
         const raw = await resp.text();
         let data = null;
         try { data = raw ? JSON.parse(raw) : null; } catch {}
@@ -175,7 +212,7 @@ export default function Checkout() {
         return;
       }
 
-      // Transferencia: mismo flujo de antes
+      // Transferencia (igual que antes)
       const payload = {
         user_id: u.id,
         brand_slug: slug,
