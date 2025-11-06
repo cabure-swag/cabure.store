@@ -1,134 +1,155 @@
 // pages/api/mp/webhook.js
-import { supaAdmin } from '../../../lib/supabaseAdmin';
-
-export const config = { api: { bodyParser: true } };
+import { getSupaAdmin } from '../../../lib/supabaseAdmin';
 
 /**
- * Recibe notificaciones de MP. Confirmamos solo con status 'approved' y
- * recién ahí creamos:
- * - order (status: 'paid')
- * - chat vinculado al order
- *
- * Importante: usamos el token de LA MARCA, que obtenemos por query (?brand=slug)
- * y validamos con la info del pago.
+ * Mercado Pago envía:
+ * - topic/type: "payment"
+ * - data.id    : payment id
  */
 export default async function handler(req, res) {
   try {
-    // MP manda GET (verificación) y POST (evento)
-    if (req.method === 'GET') {
-      return res.status(200).send('OK');
-    }
     if (req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method not allowed' });
+      return res.status(200).json({ ok: true, ping: true });
     }
 
-    const brandSlug = String(req.query?.brand || '');
-    if (!brandSlug) {
-      // sin marca no podemos consultar el pago
-      return res.status(200).json({ received: true });
+    const admin = getSupaAdmin();
+    if (!admin) {
+      // Respondemos 200 para que MP no reintente, pero log lógico
+      return res.status(200).json({ ok: false, reason: 'missing_admin_env' });
     }
 
-    // Token de la marca
-    const { data: brand, error: eBrand } = await supaAdmin
+    const brandSlug = String(req.query.brand || '').trim();
+    const body = req.body || {};
+    const topic = body?.type || body?.topic || '';
+    const paymentId = body?.data?.id || body?.id || null;
+
+    if (!paymentId || (topic && topic !== 'payment')) {
+      return res.status(200).json({ ok: false, reason: 'not_payment' });
+    }
+
+    // Busco token de la marca
+    const { data: brand, error: eBrand } = await admin
       .from('brands')
-      .select('slug,mp_access_token')
+      .select('slug,name,mp_access_token')
       .eq('slug', brandSlug)
       .single();
-    if (eBrand || !brand || !brand.mp_access_token) {
-      return res.status(200).json({ received: true });
+
+    if (eBrand || !brand?.mp_access_token) {
+      return res.status(200).json({ ok: false, reason: 'brand_or_token_missing' });
     }
 
-    // MP manda distintos formatos; contemplamos ambos
-    const topic = req.query?.type || req.query?.topic || req.body?.type;
-    const paymentId =
-      req.body?.data?.id || req.query?.id || req.query?.['data.id'] || null;
-
-    if (!paymentId || (topic !== 'payment' && topic !== 'payments')) {
-      return res.status(200).json({ received: true });
-    }
-
-    // Consultar el pago con el token de la marca
-    const pr = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${brand.mp_access_token}` }
+    // Traigo el pago desde MP
+    const pResp = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+      headers: { Authorization: `Bearer ${brand.mp_access_token}` },
     });
-    if (!pr.ok) {
-      const txt = await pr.text();
-      console.error('MP payment fetch error:', txt);
-      return res.status(200).json({ received: true });
-    }
-    const pay = await pr.json();
+    const pRaw = await pResp.text();
+    let payment = null;
+    try { payment = pRaw ? JSON.parse(pRaw) : null; } catch {}
 
-    // Solo confirmamos pagos aprobados
-    if (pay.status !== 'approved') {
-      return res.status(200).json({ received: true });
+    if (!pResp.ok || !payment) {
+      return res.status(200).json({ ok: false, reason: 'mp_fetch_failed', detail: pRaw?.slice?.(0, 200) || 'no_raw' });
     }
 
-    // Idempotencia: ¿ya tenemos una orden con este payment?
-    const { data: existing } = await supaAdmin
-      .from('orders')
-      .select('id')
-      .eq('mp_payment_id', String(paymentId))
-      .maybeSingle();
-
-    if (existing?.id) {
-      // ya procesado
-      return res.status(200).json({ received: true });
+    // Sólo atendemos pagos aprobados
+    if (payment.status !== 'approved') {
+      return res.status(200).json({ ok: true, ignored_status: payment.status });
     }
 
-    // External reference: lo pusimos como JSON
-    let ext = {};
-    try { ext = JSON.parse(pay.external_reference || '{}'); } catch {}
+    // Leímos el external_reference que armamos en create-preference
+    let ext = null;
+    try { ext = payment.external_reference ? JSON.parse(payment.external_reference) : null; } catch {}
+    const orderDraft = ext?.order_draft || null;
+    const buyer_id = ext?.buyer_id || null;
 
-    // Items cobrados: vienen en pay.additional_info.items con los montos finales
-    const items = Array.isArray(pay.additional_info?.items)
-      ? pay.additional_info.items.map(it => ({
-          id: it.id,
-          title: it.title,
-          quantity: it.quantity,
-          unit_price: Number(it.unit_price)
-        }))
-      : [];
+    if (!orderDraft || !buyer_id) {
+      // No tenemos datos para crear el pedido; evitamos duplicados
+      return res.status(200).json({ ok: false, reason: 'missing_order_draft_or_buyer' });
+    }
 
-    // Total
-    const total = Number(pay.transaction_details?.total_paid_amount) || 0;
-
-    // Crear order (paid)
-    const insertOrder = {
+    // Armamos payload de orden (status=paid)
+    const nowIso = new Date().toISOString();
+    const orderPayload = {
+      user_id: buyer_id,
       brand_slug: brandSlug,
-      buyer_id: ext.buyer_id || null,
+      shipping: orderDraft.shipping || null,  // 'domicilio' | 'sucursal'
+      pay: 'mp',
+      ship_name: orderDraft.ship_name || null,
+      buyer_email: orderDraft.buyer_email || null,
+      ship_dni: null, // no se requiere en MP
+      // domicilio
+      ship_street: orderDraft.ship_street || null,
+      ship_number: orderDraft.ship_number || null,
+      ship_floor: orderDraft.ship_floor || null,
+      ship_apartment: orderDraft.ship_apartment || null,
+      ship_city: orderDraft.ship_city || null,
+      ship_state: orderDraft.ship_state || null,
+      ship_zip: orderDraft.ship_zip || null,
+      // sucursal
+      branch_id: orderDraft.branch_id || null,
+      branch_name: orderDraft.branch_name || null,
+      branch_address: orderDraft.branch_address || null,
+      branch_city: orderDraft.branch_city || null,
+      branch_state: orderDraft.branch_state || null,
+      branch_zip: orderDraft.branch_zip || null,
+      // totales
+      subtotal: Number(orderDraft.subtotal) || 0,
+      mp_fee_pct: Number(orderDraft.mp_fee_pct) || 0,
+      total: Number(orderDraft.total) || 0,
+      // estado pago
       status: 'paid',
-      items,
       mp_payment_id: String(paymentId),
-      mp_preference_id: String(pay.order?.id || pay.metadata?.preference_id || ''),
-      total,
-      currency: (pay.currency_id || 'ARS')
+      paid_at: nowIso,
     };
 
-    const { data: order, error: eOrder } = await supaAdmin
+    // Creamos orden
+    const { data: order, error: eOrder } = await admin
       .from('orders')
-      .insert(insertOrder)
+      .insert(orderPayload)
       .select('*')
       .single();
 
     if (eOrder) {
-      console.error('insert order error', eOrder);
-      return res.status(200).json({ received: true });
+      return res.status(200).json({ ok: false, reason: 'order_insert_failed', detail: eOrder.message || String(eOrder) });
     }
 
-    // Crear chat para el pedido
-    const { error: eChat } = await supaAdmin
-      .from('chats')
-      .insert({ order_id: order.id, brand_slug: brandSlug });
+    // Ítems
+    const itemsRows = (orderDraft.items || []).map((c) => ({
+      order_id: order.id,
+      product_id: c.id ?? null,
+      name: String(c.name ?? c.title ?? 'Item'),
+      price: Number(c.unit_price) || Number(c.price) || 0,
+      qty: Number(c.quantity ?? c.qty ?? 1) || 1,
+    }));
 
-    if (eChat) {
-      console.error('insert chat error', eChat);
-      // no cortamos: el pedido quedó registrado
+    if (itemsRows.length) {
+      const { error: eItems } = await admin.from('order_items').insert(itemsRows);
+      if (eItems) {
+        // No abortamos el webhook, pero dejamos detalle
+        // (podés auditarlo luego)
+      }
     }
 
-    return res.status(200).json({ received: true });
-  } catch (e) {
-    console.error('webhook error', e);
-    return res.status(200).json({ received: true }); // MP solo necesita 200
+    // Crear chat del pedido (opcional, si existe tabla). Intentamos y si falla, seguimos.
+    try {
+      // Opción A: tabla `order_chats`
+      const { error: eChat } = await admin
+        .from('order_chats')
+        .insert({ order_id: order.id })
+        .select('id')
+        .single();
+
+      if (eChat) {
+        // Opción B: tabla `chats` con tipo
+        await admin.from('chats').insert({
+          order_id: order.id,
+          kind: 'order',
+          created_at: nowIso
+        });
+      }
+    } catch (_) {}
+
+    return res.status(200).json({ ok: true, order_id: order.id });
+  } catch (err) {
+    return res.status(200).json({ ok: false, reason: 'exception', error: String(err?.message || err) });
   }
 }
