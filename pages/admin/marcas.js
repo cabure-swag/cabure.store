@@ -8,10 +8,10 @@ const toNumber = (v, d = 0) => {
   return Number.isFinite(n) ? n : d;
 };
 
-// ==== Storage helpers (consistentes con /vendedor/perfil) ====
+// ==== Storage helpers ====
 const BUCKET = 'brand-media';
-const pathAvatar = (slug, ext) => `brands/${slug}/avatar.${ext}`;
-const pathCover  = (slug, fileSafe) => `brands/${slug}/covers/${Date.now()}_${fileSafe}`;
+const pathLogo  = (slug, ext) => `brands/${slug}/avatar.${ext}`;           // guardamos el "logo" aquí
+const pathCover = (slug, fileSafe) => `brands/${slug}/covers/${Date.now()}_${fileSafe}`;
 
 async function uploadFile(file, path, upsert = true) {
   const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert, cacheControl: '3600' });
@@ -50,14 +50,13 @@ export default function AdminMarcas() {
     ship_sucursal: '',
     ship_free_from: '',
     mp_fee: '',
-    // datos de cobro
-    mp_access_token: '',   // ⬅️ NUEVO: token por marca
+    // cobro
+    mp_access_token: '',
     mp_alias: '',
-    mp_cvu: '',
-    mp_cbu: '',
+    mp_cvu_cbu: '',          // ⬅️ un solo input para CVU/CBU (uno u otro)
     mp_holder: '',
     // visuales
-    avatar_url: '',
+    logo_url: '',            // ⬅️ usamos logo_url en toda la app
     cover_photos: [],
   };
   const [form, setForm] = useState(emptyForm);
@@ -65,8 +64,8 @@ export default function AdminMarcas() {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const fileAvatarRef = useRef(null);
-  const fileCoverRef  = useRef(null);
+  const fileLogoRef  = useRef(null);
+  const fileCoverRef = useRef(null);
 
   // Guard de rol admin
   useEffect(() => {
@@ -93,7 +92,7 @@ export default function AdminMarcas() {
     const { data, error } = await supabase
       .from('brands')
       .select(`
-        name, slug, description, avatar_url, cover_photos,
+        name, slug, description, logo_url, cover_photos,
         ship_domicilio, ship_sucursal, ship_free_from,
         mp_fee, mp_access_token, mp_alias, mp_cvu, mp_cbu, mp_holder
       `)
@@ -108,12 +107,13 @@ export default function AdminMarcas() {
     setForm(emptyForm);
     setErr('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    // limpiar inputs file
-    if (fileAvatarRef.current) fileAvatarRef.current.value = '';
+    if (fileLogoRef.current)  fileLogoRef.current.value  = '';
     if (fileCoverRef.current) fileCoverRef.current.value = '';
   }
 
   function startEdit(brand) {
+    // decidir qué mostrar en el campo único CVU/CBU (tomamos el que tenga valor)
+    const cvuOrCbu = brand.mp_cvu || brand.mp_cbu || '';
     setEditingSlug(brand.slug);
     setForm({
       name: brand.name || '',
@@ -123,17 +123,16 @@ export default function AdminMarcas() {
       ship_sucursal: brand.ship_sucursal ?? '',
       ship_free_from: brand.ship_free_from ?? '',
       mp_fee: brand.mp_fee ?? '',
-      mp_access_token: brand.mp_access_token || '', // ⬅️ token en edición
+      mp_access_token: brand.mp_access_token || '',
       mp_alias: brand.mp_alias || '',
-      mp_cvu: brand.mp_cvu || '',
-      mp_cbu: brand.mp_cbu || '',
+      mp_cvu_cbu: cvuOrCbu,                 // ⬅️ un solo input visible
       mp_holder: brand.mp_holder || '',
-      avatar_url: brand.avatar_url || '',
+      logo_url: brand.logo_url || '',
       cover_photos: Array.isArray(brand.cover_photos) ? brand.cover_photos : [],
     });
     setErr('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    if (fileAvatarRef.current) fileAvatarRef.current.value = '';
+    if (fileLogoRef.current)  fileLogoRef.current.value  = '';
     if (fileCoverRef.current) fileCoverRef.current.value = '';
   }
 
@@ -144,6 +143,9 @@ export default function AdminMarcas() {
     if (!form.name.trim()) return setErr('Ingresá el nombre de la marca.');
     if (!form.slug.trim()) return setErr('Ingresá el slug (único).');
 
+    // al guardar, para simplificar dejamos el mismo valor en mp_cvu y mp_cbu
+    const cvuOrCbu = form.mp_cvu_cbu?.trim() || null;
+
     const payload = {
       name: form.name.trim(),
       slug: form.slug.trim(),
@@ -152,14 +154,12 @@ export default function AdminMarcas() {
       ship_sucursal: form.ship_sucursal === '' ? null : toNumber(form.ship_sucursal, null),
       ship_free_from: form.ship_free_from === '' ? null : toNumber(form.ship_free_from, null),
       mp_fee: form.mp_fee === '' ? null : toNumber(form.mp_fee, null),
-      // cobro (token + opcionales según cómo cobren)
       mp_access_token: form.mp_access_token || null,
       mp_alias: form.mp_alias || null,
-      mp_cvu: form.mp_cvu || null,
-      mp_cbu: form.mp_cbu || null,
+      mp_cvu: cvuOrCbu,                         // ⬅️ escribimos ambos
+      mp_cbu: cvuOrCbu,                         // ⬅️ escribimos ambos
       mp_holder: form.mp_holder || null,
-      // imágenes
-      avatar_url: form.avatar_url || null,
+      logo_url: form.logo_url || null,
       cover_photos: Array.isArray(form.cover_photos) && form.cover_photos.length ? form.cover_photos : null,
     };
 
@@ -185,7 +185,6 @@ export default function AdminMarcas() {
     if (!confirm('¿Eliminar la marca y sus datos asociados? Esta acción no se puede deshacer.')) return;
     try {
       setBusy(true);
-      // Nota: esto NO borra archivos del bucket; podríamos hacerlo si querés.
       const { error } = await supabase.from('brands').delete().eq('slug', slug);
       if (error) throw error;
       await reload();
@@ -198,32 +197,32 @@ export default function AdminMarcas() {
   }
 
   // ===== Uploads =====
-  async function onPickAvatar(e) {
+  async function onPickLogo(e) {
     const file = e?.target?.files?.[0];
     const slug = (editingSlug ? editingSlug : form.slug)?.trim();
     if (!file) return;
-    if (!slug) { setErr('Para subir avatar primero completá el Slug.'); return; }
+    if (!slug) { setErr('Para subir el logo primero completá el Slug.'); return; }
     setErr('');
     try {
       setBusy(true);
       const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
-      const path = pathAvatar(slug, ext);
+      const path = pathLogo(slug, ext);
       await uploadFile(file, path, true);
       const url = publicUrl(path);
-      // Persistir en DB
-      const { error } = await supabase.from('brands').update({ avatar_url: url }).eq('slug', slug);
+      // Persistir en DB: logo_url
+      const { error } = await supabase.from('brands').update({ logo_url: url }).eq('slug', slug);
       if (error) throw error;
 
       // Refrescar form/lista si corresponde
-      setForm(f => ({ ...f, avatar_url: url }));
+      setForm(f => ({ ...f, logo_url: url }));
       if (editingSlug === slug) {
-        setList(prev => prev.map(b => b.slug === slug ? { ...b, avatar_url: url } : b));
+        setList(prev => prev.map(b => b.slug === slug ? { ...b, logo_url: url } : b));
       }
     } catch (e2) {
       setErr(e2?.message || String(e2));
     } finally {
       setBusy(false);
-      if (fileAvatarRef.current) fileAvatarRef.current.value = '';
+      if (fileLogoRef.current) fileLogoRef.current.value = '';
     }
   }
 
@@ -333,19 +332,19 @@ export default function AdminMarcas() {
           <textarea className="input" rows={3} value={form.description} onChange={e=>setForm(f=>({...f, description: e.target.value}))} />
         </div>
 
-        {/* Avatar + Portadas (UPLOAD) */}
+        {/* Logo + Portadas (UPLOAD) */}
         <div className="mt row" style={{ gap:12, alignItems:'center' }}>
           <div style={{ flex: '0 0 140px' }}>
-            <label className="small">Avatar</label>
+            <label className="small">Logo</label>
             <div style={{ width: 120, height: 120, borderRadius: 12, border:'1px solid var(--line)', overflow:'hidden', background:'#0f1118' }}>
-              {form.avatar_url ? (
-                <img alt="" src={form.avatar_url} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+              {form.logo_url ? (
+                <img alt="" src={form.logo_url} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
               ) : (
-                <div style={{ width:'100%', height:'100%', display:'grid', placeItems:'center', color:'var(--muted)' }}>Sin avatar</div>
+                <div style={{ width:'100%', height:'100%', display:'grid', placeItems:'center', color:'var(--muted)' }}>Sin logo</div>
               )}
             </div>
             <div className="mt">
-              <input ref={fileAvatarRef} type="file" accept="image/*" onChange={onPickAvatar} />
+              <input ref={fileLogoRef} type="file" accept="image/*" onChange={onPickLogo} />
               <div className="small" style={{ color:'var(--muted)' }}>Requiere completar Slug</div>
             </div>
           </div>
@@ -375,7 +374,7 @@ export default function AdminMarcas() {
           </div>
         </div>
 
-        {/* Envíos */}
+        {/* Envíos y MP fee */}
         <div className="mt row" style={{ gap: 12 }}>
           <div style={{ flex: 1 }}>
             <label className="small">Envío a domicilio ($)</label>
@@ -415,12 +414,13 @@ export default function AdminMarcas() {
             <input className="input" value={form.mp_alias} onChange={e=>setForm(f=>({...f, mp_alias: e.target.value}))} />
           </div>
           <div style={{ flex: 1 }}>
-            <label className="small">CVU</label>
-            <input className="input" value={form.mp_cvu} onChange={e=>setForm(f=>({...f, mp_cvu: e.target.value}))} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label className="small">CBU</label>
-            <input className="input" value={form.mp_cbu} onChange={e=>setForm(f=>({...f, mp_cbu: e.target.value}))} />
+            <label className="small">CVU/CBU (uno u otro)</label>
+            <input
+              className="input"
+              placeholder="22 dígitos"
+              value={form.mp_cvu_cbu}
+              onChange={e=>setForm(f=>({...f, mp_cvu_cbu: e.target.value}))}
+            />
           </div>
           <div style={{ flex: 1 }}>
             <label className="small">Titular</label>
@@ -452,7 +452,7 @@ export default function AdminMarcas() {
             {list.map(b => (
               <div key={b.slug} className="row" style={{ alignItems:'center', gap:12, border:'1px solid var(--line)', borderRadius:12, padding:8 }}>
                 <div className="row" style={{ gap:10, alignItems:'center', flex:1 }}>
-                  {b.avatar_url ? <img alt="" src={b.avatar_url} style={{ width:44, height:44, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)'}}/> : <div style={{ width:44, height:44, borderRadius:8, border:'1px solid var(--line)', background:'#0f1118'}}/>}
+                  {b.logo_url ? <img alt="" src={b.logo_url} style={{ width:44, height:44, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)'}}/> : <div style={{ width:44, height:44, borderRadius:8, border:'1px solid var(--line)', background:'#0f1118'}}/>}
                   <div style={{ display:'flex', flexDirection:'column' }}>
                     <strong>{b.name}</strong>
                     <span className="small" style={{ color:'var(--muted)' }}>{b.slug}</span>
