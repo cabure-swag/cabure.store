@@ -76,7 +76,10 @@ export default function Checkout() {
   }, [slug]);
 
   // Totales
-  const subtotal = useMemo(() => cart.reduce((a, c) => a + (toNumber(c.price) * toNumber(c.qty, 1)), 0), [cart]);
+  const subtotal = useMemo(
+    () => cart.reduce((a, c) => a + (toNumber(c.price) * toNumber(c.qty, 1)), 0),
+    [cart]
+  );
 
   const shipCost = useMemo(() => {
     if (!brand) return 0;
@@ -90,13 +93,20 @@ export default function Checkout() {
     return base;
   }, [brand, shipping, subtotal]);
 
-  const mpFee = useMemo(() => {
-    if (!brand || pay !== 'mp') return 0;
-    const pct = toNumber(brand.mp_fee, 10);
-    return Math.round(subtotal * (pct / 100));
-  }, [brand, pay, subtotal]);
+  // % de recargo leído de la marca (si es null/undefined -> 0)
+  const mpPct = useMemo(() => {
+    if (!brand) return 0;
+    const pct = toNumber(brand.mp_fee, 0);
+    return pct < 0 ? 0 : pct;
+  }, [brand]);
 
-  const total = subtotal + shipCost + mpFee;
+  // Importe de recargo solo si eligió MP
+  const mpFee = useMemo(() => {
+    if (pay !== 'mp') return 0;
+    return Math.round(subtotal * (mpPct / 100));
+  }, [pay, subtotal, mpPct]);
+
+  const total = subtotal + shipCost + (pay === 'mp' ? mpFee : 0);
 
   // Validación mínima y contextual
   function validate() {
@@ -147,14 +157,12 @@ export default function Checkout() {
 
       // --- Flujo MP: NO crear orden acá; sólo preferencia y redirigir ---
       if (pay === 'mp') {
-        // Armamos items para MP (sin aplicar fee en el cliente).
         const mpItems = cart.map(c => ({
           id: String(c.id ?? ''),
           title: String(c.name ?? 'Item'),
           quantity: toNumber(c.qty, 1),
           unit_price: toNumber(c.price)
         }));
-        // Envío como ítem aparte si corresponde
         if (shipCost > 0) {
           mpItems.push({
             id: 'shipping',
@@ -171,24 +179,29 @@ export default function Checkout() {
             brand_slug: slug,
             items: mpItems,
             payer: { email: buyerEmail, name: shipName },
-            buyer_id: u.id,
-            // Podrías enviar back_urls si querés overridear las defaults del API
+            buyer_id: u.id
           })
         });
 
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data?.error || 'No se pudo iniciar el pago con Mercado Pago.');
+        // Robustez: leer como texto y luego intentar parsear
+        const raw = await resp.text();
+        let data = null;
+        try { data = raw ? JSON.parse(raw) : null; } catch { /* noop */ }
 
-        // Limpiar carrito local y redirigir a MP
+        if (!resp.ok) {
+          const msg = (data && (data.error || data.message)) || raw || 'Error al crear preferencia de MP.';
+          throw new Error(msg);
+        }
+        if (!data || (!data.init_point && !data.sandbox_init_point)) {
+          throw new Error('Respuesta inválida de Mercado Pago (sin init_point).');
+        }
+
         try { localStorage.removeItem(`cart:${slug}`); } catch {}
-        const initPoint = data.init_point || data.sandbox_init_point;
-        if (!initPoint) throw new Error('Mercado Pago no devolvió init_point.');
-        location.href = initPoint;
+        location.href = data.init_point || data.sandbox_init_point;
         return;
       }
 
       // --- Flujo Transferencia: se mantiene tu lógica actual ---
-      // Payload
       const payload = {
         user_id: u.id,
         brand_slug: slug,
@@ -198,7 +211,7 @@ export default function Checkout() {
         buyer_email: buyerEmail,  // email de la sesión (para el vendedor)
         ship_dni: shipDni || null,
         subtotal,
-        mp_fee_pct: toNumber(brand?.mp_fee, 10),
+        mp_fee_pct: mpPct,
         total,
         status: 'pending',
       };
@@ -224,7 +237,6 @@ export default function Checkout() {
         });
       }
 
-      // Insertar orden
       const { data: order, error } = await supabase
         .from('orders')
         .insert(payload)
@@ -232,7 +244,6 @@ export default function Checkout() {
         .single();
       if (error) throw error;
 
-      // Ítems
       const rows = cart.map(c => ({
         order_id: order.id,
         product_id: c.id,
@@ -255,7 +266,7 @@ export default function Checkout() {
   // --- UI ---
   return (
     <main className="container" style={{ padding: '24px 16px' }}>
-      {/* Encabezado con acento sutil (marca visual de deploy) */}
+      {/* Encabezado */}
       <div
         className="card"
         style={{
@@ -336,7 +347,6 @@ export default function Checkout() {
                       const v = e.target.value || '';
                       setShipping(v);
                       if (v !== 'sucursal') {
-                        // limpiar datos de sucursal si cambia a domicilio
                         setBranchId(''); setBranchName(''); setBranchAddress('');
                         setBranchCity(''); setBranchState(''); setBranchZip('');
                       }
@@ -362,7 +372,7 @@ export default function Checkout() {
                 </div>
               </div>
 
-              {/* Domicilio (condicional) */}
+              {/* Domicilio */}
               <div
                 style={{
                   overflow: 'hidden',
@@ -407,7 +417,7 @@ export default function Checkout() {
                 </div>
               </div>
 
-              {/* Sucursal (manual, sin desplegable ni buscador) */}
+              {/* Sucursal */}
               <div
                 style={{
                   overflow: 'hidden',
@@ -496,7 +506,7 @@ export default function Checkout() {
                   </select>
                   {pay === 'mp' && (
                     <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
-                      Recargo MP: {brand?.mp_fee ?? 10}%
+                      Recargo MP: {mpPct}%
                     </div>
                   )}
                 </div>
@@ -587,7 +597,7 @@ export default function Checkout() {
               )}
               <div className="row" style={{ fontWeight: 900 }}>
                 <span>Total</span>
-                <span>${subtotal + shipCost + mpFee}</span>
+                <span>${total}</span>
               </div>
             </div>
           </div>
