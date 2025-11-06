@@ -50,12 +50,14 @@ export default function AdminMarcas() {
     ship_sucursal: '',
     ship_free_from: '',
     mp_fee: '',
+    // datos de cobro
+    mp_access_token: '',   // ⬅️ NUEVO: token por marca
     mp_alias: '',
     mp_cvu: '',
     mp_cbu: '',
     mp_holder: '',
-    // visuales (se muestran desde la DB al editar/crear)
-    logo_url: '',
+    // visuales
+    avatar_url: '',
     cover_photos: [],
   };
   const [form, setForm] = useState(emptyForm);
@@ -90,7 +92,11 @@ export default function AdminMarcas() {
     setLoading(true);
     const { data, error } = await supabase
       .from('brands')
-      .select('name, slug, description, logo_url, cover_photos, ship_domicilio, ship_sucursal, ship_free_from, mp_fee, mp_alias, mp_cvu, mp_cbu, mp_holder')
+      .select(`
+        name, slug, description, avatar_url, cover_photos,
+        ship_domicilio, ship_sucursal, ship_free_from,
+        mp_fee, mp_access_token, mp_alias, mp_cvu, mp_cbu, mp_holder
+      `)
       .order('name', { ascending: true });
     if (error) { setErr(error.message || String(error)); setList([]); }
     else setList(Array.isArray(data) ? data : []);
@@ -117,11 +123,12 @@ export default function AdminMarcas() {
       ship_sucursal: brand.ship_sucursal ?? '',
       ship_free_from: brand.ship_free_from ?? '',
       mp_fee: brand.mp_fee ?? '',
-      mp_alias: brand.mp_alias ?? '',
-      mp_cvu: brand.mp_cvu ?? '',
-      mp_cbu: brand.mp_cbu ?? '',
-      mp_holder: brand.mp_holder ?? '',
-      logo_url: brand.logo_url || '',
+      mp_access_token: brand.mp_access_token || '', // ⬅️ token en edición
+      mp_alias: brand.mp_alias || '',
+      mp_cvu: brand.mp_cvu || '',
+      mp_cbu: brand.mp_cbu || '',
+      mp_holder: brand.mp_holder || '',
+      avatar_url: brand.avatar_url || '',
       cover_photos: Array.isArray(brand.cover_photos) ? brand.cover_photos : [],
     });
     setErr('');
@@ -145,14 +152,14 @@ export default function AdminMarcas() {
       ship_sucursal: form.ship_sucursal === '' ? null : toNumber(form.ship_sucursal, null),
       ship_free_from: form.ship_free_from === '' ? null : toNumber(form.ship_free_from, null),
       mp_fee: form.mp_fee === '' ? null : toNumber(form.mp_fee, null),
+      // cobro (token + opcionales según cómo cobren)
+      mp_access_token: form.mp_access_token || null,
       mp_alias: form.mp_alias || null,
       mp_cvu: form.mp_cvu || null,
       mp_cbu: form.mp_cbu || null,
       mp_holder: form.mp_holder || null,
-      // imágenes se actualizan en handlers de upload,
-      // pero si estamos creando una marca nueva y el admin ya subió algo (con slug),
-      // esto preserva lo que hay en form.*
-      logo_url: form.logo_url || null,
+      // imágenes
+      avatar_url: form.avatar_url || null,
       cover_photos: Array.isArray(form.cover_photos) && form.cover_photos.length ? form.cover_photos : null,
     };
 
@@ -203,15 +210,14 @@ export default function AdminMarcas() {
       const path = pathAvatar(slug, ext);
       await uploadFile(file, path, true);
       const url = publicUrl(path);
-      // Persistir en DB (logo_url como imagen principal)
-      const { error } = await supabase.from('brands').update({ logo_url: url }).eq('slug', slug);
+      // Persistir en DB
+      const { error } = await supabase.from('brands').update({ avatar_url: url }).eq('slug', slug);
       if (error) throw error;
 
       // Refrescar form/lista si corresponde
-      setForm(f => ({ ...f, logo_url: url }));
+      setForm(f => ({ ...f, avatar_url: url }));
       if (editingSlug === slug) {
-        // reflejar en memoria del listado para UX instantánea
-        setList(prev => prev.map(b => b.slug === slug ? { ...b, logo_url: url } : b));
+        setList(prev => prev.map(b => b.slug === slug ? { ...b, avatar_url: url } : b));
       }
     } catch (e2) {
       setErr(e2?.message || String(e2));
@@ -234,10 +240,10 @@ export default function AdminMarcas() {
       await uploadFile(file, path, false);
       const url = publicUrl(path);
 
-      // Push a cover_photos
-      const next = Array.isArray(editingSlug ? (list.find(b=>b.slug===slug)?.cover_photos||[]) : form.cover_photos)
-        ? [...(editingSlug ? (list.find(b=>b.slug===slug)?.cover_photos||[]) : form.cover_photos)]
-        : [];
+      const current = editingSlug
+        ? (list.find(b=>b.slug===slug)?.cover_photos||[])
+        : (form.cover_photos||[]);
+      const next = Array.isArray(current) ? [...current] : [];
       next.push(url);
 
       const { error } = await supabase.from('brands').update({ cover_photos: next }).eq('slug', slug);
@@ -260,7 +266,6 @@ export default function AdminMarcas() {
   async function removeCoverUrl(i) {
     const slug = (editingSlug ? editingSlug : form.slug)?.trim();
     if (!slug) return;
-    // Obtener la lista actual según contexto (editando lista o creando)
     const current = editingSlug
       ? (list.find(b => b.slug === slug)?.cover_photos || [])
       : (form.cover_photos || []);
@@ -270,7 +275,6 @@ export default function AdminMarcas() {
     setErr('');
     try {
       setBusy(true);
-      // borrar archivo del bucket si pertenece
       await removePublicFileIfBelongs(toRemove);
 
       const next = [...current];
@@ -334,10 +338,10 @@ export default function AdminMarcas() {
           <div style={{ flex: '0 0 140px' }}>
             <label className="small">Avatar</label>
             <div style={{ width: 120, height: 120, borderRadius: 12, border:'1px solid var(--line)', overflow:'hidden', background:'#0f1118' }}>
-              {form.logo_url ? (
-                <img alt="" src={form.logo_url} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+              {form.avatar_url ? (
+                <img alt="" src={form.avatar_url} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
               ) : (
-                <div style={{ width:'100%', height:'100%', display:'grid', placeItems:'center', color:'var(--muted)' }}>Sin imagen</div>
+                <div style={{ width:'100%', height:'100%', display:'grid', placeItems:'center', color:'var(--muted)' }}>Sin avatar</div>
               )}
             </div>
             <div className="mt">
@@ -371,6 +375,7 @@ export default function AdminMarcas() {
           </div>
         </div>
 
+        {/* Envíos */}
         <div className="mt row" style={{ gap: 12 }}>
           <div style={{ flex: 1 }}>
             <label className="small">Envío a domicilio ($)</label>
@@ -390,9 +395,23 @@ export default function AdminMarcas() {
           </div>
         </div>
 
+        {/* Cobro - MP */}
         <div className="mt row" style={{ gap: 12 }}>
+          <div style={{ flex: 2 }}>
+            <label className="small">Token de MP (privado)</label>
+            <input
+              className="input"
+              type="text"
+              placeholder="APP_USR-XXXXXXXXX..."
+              value={form.mp_access_token}
+              onChange={e=>setForm(f=>({...f, mp_access_token: e.target.value}))}
+            />
+            <div className="small" style={{ color:'var(--muted)', marginTop: 6 }}>
+              Este token pertenece a la cuenta del vendedor en Mercado Pago. No lo compartas.
+            </div>
+          </div>
           <div style={{ flex: 1 }}>
-            <label className="small">MP Alias</label>
+            <label className="small">Alias</label>
             <input className="input" value={form.mp_alias} onChange={e=>setForm(f=>({...f, mp_alias: e.target.value}))} />
           </div>
           <div style={{ flex: 1 }}>
@@ -433,7 +452,7 @@ export default function AdminMarcas() {
             {list.map(b => (
               <div key={b.slug} className="row" style={{ alignItems:'center', gap:12, border:'1px solid var(--line)', borderRadius:12, padding:8 }}>
                 <div className="row" style={{ gap:10, alignItems:'center', flex:1 }}>
-                  {b.logo_url ? <img alt="" src={b.logo_url} style={{ width:44, height:44, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)'}}/> : <div style={{ width:44, height:44, borderRadius:8, border:'1px solid var(--line)', background:'#0f1118'}}/>}
+                  {b.avatar_url ? <img alt="" src={b.avatar_url} style={{ width:44, height:44, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)'}}/> : <div style={{ width:44, height:44, borderRadius:8, border:'1px solid var(--line)', background:'#0f1118'}}/>}
                   <div style={{ display:'flex', flexDirection:'column' }}>
                     <strong>{b.name}</strong>
                     <span className="small" style={{ color:'var(--muted)' }}>{b.slug}</span>
