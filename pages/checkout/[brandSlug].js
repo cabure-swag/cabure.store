@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
 
-// Helper numérico seguro
 const toNumber = (v, d = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
@@ -13,30 +12,23 @@ export default function Checkout() {
   const router = useRouter();
   const slug = router.query.brandSlug;
 
-  // Marca / costos
   const [brand, setBrand] = useState(null);
   const [loadingBrand, setLoadingBrand] = useState(true);
-
-  // Carrito
   const [cart, setCart] = useState([]);
 
-  // Selecciones
-  const [shipping, setShipping] = useState('');           // 'domicilio' | 'sucursal'
-  const [pay, setPay] = useState('transferencia');        // 'transferencia' | 'mp'
+  const [shipping, setShipping] = useState('');
+  const [pay, setPay] = useState('transferencia');
 
-  // Datos comprador
-  const [shipName, setShipName] = useState('');           // Solo nombre
+  const [shipName, setShipName] = useState('');
 
-  // Domicilio
   const [street, setStreet] = useState('');
   const [number, setNumber] = useState('');
-  const [floor, setFloor] = useState('');        // opcional
-  const [apartment, setApartment] = useState('');// opcional
+  const [floor, setFloor] = useState('');
+  const [apartment, setApartment] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
 
-  // Sucursal (manual)
   const [branchId, setBranchId] = useState('');
   const [branchName, setBranchName] = useState('');
   const [branchAddress, setBranchAddress] = useState('');
@@ -44,18 +36,14 @@ export default function Checkout() {
   const [branchState, setBranchState] = useState('');
   const [branchZip, setBranchZip] = useState('');
 
-  // Transferencia
   const [shipDni, setShipDni] = useState('');
 
-  // UI
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Carga inicial
   useEffect(() => {
     if (!slug) return;
 
-    // Carrito
     try {
       const raw = localStorage.getItem(`cart:${slug}`);
       const arr = raw ? JSON.parse(raw) : [];
@@ -63,7 +51,6 @@ export default function Checkout() {
       setCart(list.filter(it => it && typeof it === 'object' && toNumber(it.qty, 0) > 0));
     } catch { setCart([]); }
 
-    // Marca
     setLoadingBrand(true);
     supabase.from('brands')
       .select('name, slug, ship_domicilio, ship_sucursal, ship_free_from, mp_fee')
@@ -75,7 +62,6 @@ export default function Checkout() {
       });
   }, [slug]);
 
-  // Totales
   const subtotal = useMemo(
     () => cart.reduce((a, c) => a + (toNumber(c.price) * toNumber(c.qty, 1)), 0),
     [cart]
@@ -93,14 +79,13 @@ export default function Checkout() {
     return base;
   }, [brand, shipping, subtotal]);
 
-  // % MP (null/undefined -> 0)
   const mpPct = useMemo(() => {
     if (!brand) return 0;
     const pct = toNumber(brand.mp_fee, 0);
     return pct < 0 ? 0 : pct;
   }, [brand]);
 
-  // ⚠️ AHORA incluye el envío: recargo sobre (subtotal + shipCost)
+  // aplica sobre (subtotal + envío)
   const mpFee = useMemo(() => {
     if (pay !== 'mp') return 0;
     const base = subtotal + shipCost;
@@ -109,7 +94,6 @@ export default function Checkout() {
 
   const total = subtotal + shipCost + (pay === 'mp' ? mpFee : 0);
 
-  // Validación mínima y contextual
   function validate() {
     if (cart.length === 0) return 'Tu carrito está vacío.';
     if (!shipName.trim()) return 'Ingresá tu nombre.';
@@ -136,7 +120,6 @@ export default function Checkout() {
     return null;
   }
 
-  // Confirmar
   async function confirmOrder() {
     setErr('');
     const why = validate();
@@ -153,7 +136,6 @@ export default function Checkout() {
 
       const buyerEmail = u.email || null;
 
-      // --- Mercado Pago: NO crear orden acá; solo preferencia y redirigir ---
       if (pay === 'mp') {
         const mpItems = cart.map(c => ({
           id: String(c.id ?? ''),
@@ -162,12 +144,7 @@ export default function Checkout() {
           unit_price: toNumber(c.price)
         }));
         if (shipCost > 0) {
-          mpItems.push({
-            id: 'shipping',
-            title: 'Envío',
-            quantity: 1,
-            unit_price: toNumber(shipCost)
-          });
+          mpItems.push({ id: 'shipping', title: 'Envío', quantity: 1, unit_price: toNumber(shipCost) });
         }
 
         const resp = await fetch('/api/mp/create-preference', {
@@ -181,10 +158,10 @@ export default function Checkout() {
           })
         });
 
+        // 👇️ si hay texto plano o JSON, lo mostramos igual
         const raw = await resp.text();
         let data = null;
         try { data = raw ? JSON.parse(raw) : null; } catch {}
-
         if (!resp.ok) {
           const msg = (data && (data.error || data.message)) || raw || 'Error al crear preferencia de MP.';
           throw new Error(msg);
@@ -198,7 +175,7 @@ export default function Checkout() {
         return;
       }
 
-      // --- Transferencia: igual que antes ---
+      // Transferencia: mismo flujo de antes
       const payload = {
         user_id: u.id,
         brand_slug: slug,
@@ -234,11 +211,7 @@ export default function Checkout() {
         });
       }
 
-      const { data: order, error } = await supabase
-        .from('orders')
-        .insert(payload)
-        .select('*')
-        .single();
+      const { data: order, error } = await supabase.from('orders').insert(payload).select('*').single();
       if (error) throw error;
 
       const rows = cart.map(c => ({
@@ -260,7 +233,6 @@ export default function Checkout() {
     }
   }
 
-  // --- UI ---
   return (
     <main className="container" style={{ padding: '24px 16px' }}>
       <div className="card" style={{ padding: 14, borderColor: 'var(--line)', background:'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%)' }}>
@@ -278,7 +250,7 @@ export default function Checkout() {
 
       {brand && (
         <div className="mt" style={{ display: 'grid', gap: 16, gridTemplateColumns: '1fr 360px' }}>
-          {/* Columna izquierda (Formulario) */}
+          {/* Formulario */}
           <div className="card" style={{ padding: 16, background: 'rgba(17,18,26,0.92)', borderColor: 'var(--line)' }}>
             <strong>Datos del comprador</strong>
             <div className="mt">
@@ -286,7 +258,6 @@ export default function Checkout() {
               <input className="input" placeholder="Tu nombre" value={shipName} onChange={(e)=>setShipName(e.target.value)} autoComplete="name" />
             </div>
 
-            {/* Envío */}
             <div className="mt">
               <strong>Envío</strong>
               <div className="row" style={{ gap: 12, marginTop: 8 }}>
@@ -414,7 +385,6 @@ export default function Checkout() {
                 </div>
               </div>
 
-              {/* DNI solo transferencia */}
               <div style={{ overflow: 'hidden', maxHeight: pay === 'transferencia' ? 160 : 0, opacity: pay === 'transferencia' ? 1 : 0, transition: 'all .25s ease' }}>
                 <div className="mt">
                   <label className="small">DNI del ordenante (obligatorio)</label>
@@ -426,20 +396,15 @@ export default function Checkout() {
               </div>
             </div>
 
-            {/* Confirmar */}
             <div className="mt">
               <button className="btn" onClick={confirmOrder} disabled={busy || cart.length === 0 || !shipping} style={{ width: '100%', transition: 'transform .2s ease, opacity .2s ease' }}>
                 {busy ? 'Procesando…' : 'Confirmar pedido'}
               </button>
-              {cart.length === 0 && (
-                <div className="small" style={{ color: 'var(--muted)', marginTop: 8 }}>
-                  Tu carrito está vacío.
-                </div>
-              )}
+              {cart.length === 0 && <div className="small" style={{ color: 'var(--muted)', marginTop: 8 }}>Tu carrito está vacío.</div>}
             </div>
           </div>
 
-          {/* Columna derecha (Resumen) */}
+          {/* Resumen */}
           <div className="card" style={{ padding: 16, background: 'rgba(17,18,26,0.92)', borderColor: 'var(--line)', position: 'sticky', top: 16, alignSelf: 'start' }}>
             <strong>Resumen</strong>
             <div className="mt" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -458,9 +423,7 @@ export default function Checkout() {
             <div className="mt">
               <div className="row"><span>Subtotal</span><span>${subtotal}</span></div>
               <div className="row"><span>Envío</span><span>${shipCost}</span></div>
-              {pay === 'mp' && (
-                <div className="row"><span>Recargo MP</span><span>${mpFee}</span></div>
-              )}
+              {pay === 'mp' && <div className="row"><span>Recargo MP</span><span>${mpFee}</span></div>}
               <div className="row" style={{ fontWeight: 900 }}>
                 <span>Total</span><span>${total}</span>
               </div>
