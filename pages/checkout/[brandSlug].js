@@ -145,20 +145,62 @@ export default function Checkout() {
 
       const buyerEmail = u.email || null;
 
+      // --- Flujo MP: NO crear orden acá; sólo preferencia y redirigir ---
+      if (pay === 'mp') {
+        // Armamos items para MP (sin aplicar fee en el cliente).
+        const mpItems = cart.map(c => ({
+          id: String(c.id ?? ''),
+          title: String(c.name ?? 'Item'),
+          quantity: toNumber(c.qty, 1),
+          unit_price: toNumber(c.price)
+        }));
+        // Envío como ítem aparte si corresponde
+        if (shipCost > 0) {
+          mpItems.push({
+            id: 'shipping',
+            title: 'Envío',
+            quantity: 1,
+            unit_price: toNumber(shipCost)
+          });
+        }
+
+        const resp = await fetch('/api/mp/create-preference', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            brand_slug: slug,
+            items: mpItems,
+            payer: { email: buyerEmail, name: shipName },
+            buyer_id: u.id,
+            // Podrías enviar back_urls si querés overridear las defaults del API
+          })
+        });
+
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data?.error || 'No se pudo iniciar el pago con Mercado Pago.');
+
+        // Limpiar carrito local y redirigir a MP
+        try { localStorage.removeItem(`cart:${slug}`); } catch {}
+        const initPoint = data.init_point || data.sandbox_init_point;
+        if (!initPoint) throw new Error('Mercado Pago no devolvió init_point.');
+        location.href = initPoint;
+        return;
+      }
+
+      // --- Flujo Transferencia: se mantiene tu lógica actual ---
       // Payload
       const payload = {
         user_id: u.id,
         brand_slug: slug,
         shipping,                 // 'domicilio' | 'sucursal'
-        pay,                      // 'transferencia' | 'mp'
+        pay,                      // 'transferencia'
         ship_name: shipName,
-        // ship_phone eliminado de la UI y del payload
         buyer_email: buyerEmail,  // email de la sesión (para el vendedor)
-        ship_dni: pay === 'transferencia' ? shipDni : null,
+        ship_dni: shipDni || null,
         subtotal,
         mp_fee_pct: toNumber(brand?.mp_fee, 10),
         total,
-        status: pay === 'mp' ? 'created' : 'pending',
+        status: 'pending',
       };
 
       if (shipping === 'domicilio') {
@@ -201,35 +243,6 @@ export default function Checkout() {
       const { error: e2 } = await supabase.from('order_items').insert(rows);
       if (e2) throw e2;
 
-      // Flujo de pago
-      if (pay === 'mp') {
-        const r = await fetch('/api/mp/create-preference', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            order_id: order.id,
-            brand_slug: slug,
-            items: cart.map(c => ({
-              title: c.name,
-              quantity: toNumber(c.qty, 1),
-              unit_price: toNumber(c.price),
-            })),
-            shipping: shipCost,
-            fee_pct: toNumber(brand?.mp_fee, 10),
-            subtotal,
-            total,
-          }),
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j?.error || 'No se pudo crear la preferencia de MP.');
-        const initPoint = j?.init_point || j?.sandbox_init_point;
-        if (!initPoint) throw new Error('MP no devolvió init_point.');
-        try { localStorage.removeItem(`cart:${slug}`); } catch {}
-        location.href = initPoint;
-        return;
-      }
-
-      // Transferencia
       try { localStorage.removeItem(`cart:${slug}`); } catch {}
       router.replace('/compras');
     } catch (e) {
