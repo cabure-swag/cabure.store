@@ -8,8 +8,9 @@ export const config = { api: { bodyParser: true } };
  * {
  *   brand_slug: string,
  *   items: [{ id, title, unit_price, quantity }],
- *   buyer_id?: string (opcional),
+ *   shipping?: number,               // opcional: si lo mandan aparte, lo convertimos en item
  *   payer?: { email?, name? },
+ *   buyer_id?: string,
  *   back_urls?: { success?, failure?, pending? }
  * }
  */
@@ -20,30 +21,44 @@ export default async function handler(req, res) {
     const {
       brand_slug,
       items = [],
+      shipping = 0,
       payer = {},
       back_urls = {},
       buyer_id = null
     } = req.body || {};
 
-    if (!brand_slug || !Array.isArray(items) || items.length === 0) {
+    if (!brand_slug || !Array.isArray(items)) {
       return res.status(400).json({ error: 'Faltan brand_slug o items' });
     }
+    if (items.length === 0 && !shipping) {
+      return res.status(400).json({ error: 'No hay ítems ni envío' });
+    }
 
-    // Traer token y fee de la marca
+    // Marca (token + fee)
     const { data: brand, error: eBrand } = await supaAdmin
       .from('brands')
       .select('slug,name,mp_fee,mp_access_token')
       .eq('slug', brand_slug)
       .single();
     if (eBrand || !brand) return res.status(400).json({ error: 'Marca inválida' });
-    if (!brand.mp_access_token) {
-      return res.status(400).json({ error: 'La marca no tiene configurado su MP access token' });
-    }
+    if (!brand.mp_access_token) return res.status(400).json({ error: 'La marca no tiene configurado su MP access token' });
 
     const mpFee = Number(brand.mp_fee) || 0;
 
-    // Aplicar recargo server-side
-    const normItems = items.map((it) => {
+    // Si mandaron shipping separado, lo agregamos como ítem
+    const mergedItems = [...items];
+    const shipNum = Number(shipping) || 0;
+    if (shipNum > 0) {
+      mergedItems.push({
+        id: 'shipping',
+        title: 'Envío',
+        quantity: 1,
+        unit_price: shipNum
+      });
+    }
+
+    // Aplicar recargo a TODOS los ítems (incluye Envío)
+    const normItems = mergedItems.map((it) => {
       const price = Number(it.unit_price) || 0;
       const qty = Math.max(1, Number(it.quantity) || 1);
       const priceWithFee = mpFee > 0 ? +(price * (1 + mpFee / 100)).toFixed(2) : price;
@@ -56,7 +71,6 @@ export default async function handler(req, res) {
       };
     });
 
-    // Preferencia usando el token de la MARCA
     const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || '').replace(/\/$/, '');
     const notificationUrl = `${siteUrl}/api/mp/webhook?brand=${encodeURIComponent(brand_slug)}`;
 
@@ -77,13 +91,11 @@ export default async function handler(req, res) {
         brand_slug,
         buyer_id,
         mp_fee: mpFee,
-        // también guardamos los items brutos (sin fee) por claridad
         original_items: items
       }),
       notification_url: notificationUrl
     };
 
-    // Llamada REST directa a MP (sdk-less) con el token de la marca
     const resp = await fetch('https://api.mercadopago.com/checkout/preferences', {
       method: 'POST',
       headers: {
@@ -93,15 +105,14 @@ export default async function handler(req, res) {
       body: JSON.stringify(prefBody)
     });
 
-    if (!resp.ok) {
-      const err = await resp.text();
-      console.error('MP pref error:', err);
-      return res.status(resp.status).json({ error: 'MP preference error' });
-    }
-    const pref = await resp.json();
+    const raw = await resp.text();
+    let pref = null;
+    try { pref = raw ? JSON.parse(raw) : null; } catch {}
 
-    // (Opcional) podés guardar un registro de intención de pago si querés
-    // await supaAdmin.from('payment_intents').insert({...})
+    if (!resp.ok) {
+      const msg = (pref && (pref.error || pref.message)) || raw || 'MP preference error';
+      return res.status(resp.status).json({ error: msg });
+    }
 
     return res.status(200).json({
       id: pref.id,
