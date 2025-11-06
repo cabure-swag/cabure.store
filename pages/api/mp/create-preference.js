@@ -27,11 +27,12 @@ export default async function handler(req, res) {
     const {
       brand_slug,
       items = [],
-      shipping = 0,
+      shipping = 0,        // número (costo)
       payer = {},
       buyer_id = null,
       back_urls = {},
-      debug = false, // opcional: si mandás debug:true, te devuelvo más detalle en errores
+      order_draft = null,  // ⬅️ NUEVO: viene desde el checkout (datos para crear el pedido en el webhook)
+      debug = false,
     } = req.body || {};
 
     if (!brand_slug || !Array.isArray(items)) {
@@ -94,10 +95,12 @@ export default async function handler(req, res) {
         pending: back_urls?.pending || `${siteUrl}/checkout/result?status=pending`,
       },
       auto_return: 'approved',
+      // ⬇️ Guardamos TODO lo que necesitamos para crear el pedido en el webhook
       external_reference: JSON.stringify({
         brand_slug,
         buyer_id,
         mp_fee: mpFeePct,
+        order_draft: order_draft || null,
       }),
       notification_url: `${siteUrl}/api/mp/webhook?brand=${encodeURIComponent(brand_slug)}`,
     };
@@ -134,7 +137,6 @@ export default async function handler(req, res) {
       items: normItems,
     });
   } catch (err) {
-    // Pase lo que pase, devolvemos JSON
     return res.status(500).json({ error: String(err?.message || err) });
   }
 }
