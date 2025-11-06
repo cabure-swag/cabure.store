@@ -93,18 +93,19 @@ export default function Checkout() {
     return base;
   }, [brand, shipping, subtotal]);
 
-  // % de recargo leído de la marca (si es null/undefined -> 0)
+  // % MP (null/undefined -> 0)
   const mpPct = useMemo(() => {
     if (!brand) return 0;
     const pct = toNumber(brand.mp_fee, 0);
     return pct < 0 ? 0 : pct;
   }, [brand]);
 
-  // Importe de recargo solo si eligió MP
+  // ⚠️ AHORA incluye el envío: recargo sobre (subtotal + shipCost)
   const mpFee = useMemo(() => {
     if (pay !== 'mp') return 0;
-    return Math.round(subtotal * (mpPct / 100));
-  }, [pay, subtotal, mpPct]);
+    const base = subtotal + shipCost;
+    return Math.round(base * (mpPct / 100));
+  }, [pay, subtotal, shipCost, mpPct]);
 
   const total = subtotal + shipCost + (pay === 'mp' ? mpFee : 0);
 
@@ -127,7 +128,6 @@ export default function Checkout() {
       if (!branchName.trim()) return 'Ingresá el nombre de la sucursal.';
       if (!branchCity.trim()) return 'Ingresá la ciudad de la sucursal.';
       if (!branchState.trim()) return 'Ingresá la provincia de la sucursal.';
-      // Dirección y CP opcionales
     }
 
     if (pay === 'transferencia' && !shipDni.trim()) {
@@ -144,18 +144,16 @@ export default function Checkout() {
 
     try {
       setBusy(true);
-      // Sesión (usamos email del usuario logueado)
       const { data: { session} } = await supabase.auth.getSession();
       const u = session?.user;
       if (!u) {
-        // Volverá a esta misma página post-login
         location.href = `/?next=${encodeURIComponent(router.asPath)}`;
         return;
       }
 
       const buyerEmail = u.email || null;
 
-      // --- Flujo MP: NO crear orden acá; sólo preferencia y redirigir ---
+      // --- Mercado Pago: NO crear orden acá; solo preferencia y redirigir ---
       if (pay === 'mp') {
         const mpItems = cart.map(c => ({
           id: String(c.id ?? ''),
@@ -183,10 +181,9 @@ export default function Checkout() {
           })
         });
 
-        // Robustez: leer como texto y luego intentar parsear
         const raw = await resp.text();
         let data = null;
-        try { data = raw ? JSON.parse(raw) : null; } catch { /* noop */ }
+        try { data = raw ? JSON.parse(raw) : null; } catch {}
 
         if (!resp.ok) {
           const msg = (data && (data.error || data.message)) || raw || 'Error al crear preferencia de MP.';
@@ -201,14 +198,14 @@ export default function Checkout() {
         return;
       }
 
-      // --- Flujo Transferencia: se mantiene tu lógica actual ---
+      // --- Transferencia: igual que antes ---
       const payload = {
         user_id: u.id,
         brand_slug: slug,
-        shipping,                 // 'domicilio' | 'sucursal'
-        pay,                      // 'transferencia'
+        shipping,
+        pay,
         ship_name: shipName,
-        buyer_email: buyerEmail,  // email de la sesión (para el vendedor)
+        buyer_email: buyerEmail,
         ship_dni: shipDni || null,
         subtotal,
         mp_fee_pct: mpPct,
@@ -266,72 +263,27 @@ export default function Checkout() {
   // --- UI ---
   return (
     <main className="container" style={{ padding: '24px 16px' }}>
-      {/* Encabezado */}
-      <div
-        className="card"
-        style={{
-          padding: 14,
-          borderColor: 'var(--line)',
-          background:
-            'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%)',
-        }}
-      >
+      <div className="card" style={{ padding: 14, borderColor: 'var(--line)', background:'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%)' }}>
         <div className="row" style={{ alignItems: 'flex-end', gap: 8, justifyContent: 'space-between' }}>
-          <h1 className="brand" style={{ fontSize: 22, letterSpacing: '.02em' }}>
-            Finalizar compra
-          </h1>
-          {!loadingBrand && brand && (
-            <span className="badge">{brand.name}</span>
-          )}
+          <h1 className="brand" style={{ fontSize: 22, letterSpacing: '.02em' }}>Finalizar compra</h1>
+          {!loadingBrand && brand && <span className="badge">{brand.name}</span>}
         </div>
       </div>
 
-      {/* Error */}
       {err && (
-        <div
-          className="card"
-          style={{
-            marginTop: 12,
-            padding: 12,
-            borderColor: 'rgba(239,68,68,0.25)',
-            background: 'rgba(239,68,68,0.08)',
-            color: '#fecaca',
-            fontSize: 14
-          }}
-        >
+        <div className="card" style={{ marginTop: 12, padding: 12, borderColor: 'rgba(239,68,68,0.25)', background:'rgba(239,68,68,0.08)', color:'#fecaca', fontSize: 14 }}>
           {err}
         </div>
       )}
 
-      {/* Contenido */}
       {brand && (
-        <div
-          className="mt"
-          style={{
-            display: 'grid',
-            gap: 16,
-            gridTemplateColumns: '1fr 360px',
-          }}
-        >
+        <div className="mt" style={{ display: 'grid', gap: 16, gridTemplateColumns: '1fr 360px' }}>
           {/* Columna izquierda (Formulario) */}
-          <div
-            className="card"
-            style={{
-              padding: 16,
-              background: 'rgba(17,18,26,0.92)',
-              borderColor: 'var(--line)',
-            }}
-          >
+          <div className="card" style={{ padding: 16, background: 'rgba(17,18,26,0.92)', borderColor: 'var(--line)' }}>
             <strong>Datos del comprador</strong>
             <div className="mt">
               <label className="small">Nombre y apellido</label>
-              <input
-                className="input"
-                placeholder="Tu nombre"
-                value={shipName}
-                onChange={(e)=>setShipName(e.target.value)}
-                autoComplete="name"
-              />
+              <input className="input" placeholder="Tu nombre" value={shipName} onChange={(e)=>setShipName(e.target.value)} autoComplete="name" />
             </div>
 
             {/* Envío */}
@@ -373,14 +325,7 @@ export default function Checkout() {
               </div>
 
               {/* Domicilio */}
-              <div
-                style={{
-                  overflow: 'hidden',
-                  maxHeight: shipping === 'domicilio' ? 800 : 0,
-                  opacity: shipping === 'domicilio' ? 1 : 0,
-                  transition: 'all .25s ease',
-                }}
-              >
+              <div style={{ overflow: 'hidden', maxHeight: shipping === 'domicilio' ? 800 : 0, opacity: shipping === 'domicilio' ? 1 : 0, transition: 'all .25s ease' }}>
                 <div className="mt row" style={{ gap: 12 }}>
                   <div style={{ flex: 2 }}>
                     <label className="small">Calle</label>
@@ -418,73 +363,34 @@ export default function Checkout() {
               </div>
 
               {/* Sucursal */}
-              <div
-                style={{
-                  overflow: 'hidden',
-                  maxHeight: shipping === 'sucursal' ? 900 : 0,
-                  opacity: shipping === 'sucursal' ? 1 : 0,
-                  transition: 'all .25s ease',
-                }}
-              >
-                <div className="mt">
-                  <strong>Datos de la sucursal (completá a mano)</strong>
-                </div>
-
+              <div style={{ overflow: 'hidden', maxHeight: shipping === 'sucursal' ? 900 : 0, opacity: shipping === 'sucursal' ? 1 : 0, transition: 'all .25s ease' }}>
+                <div className="mt"><strong>Datos de la sucursal (completá a mano)</strong></div>
                 <div className="mt row" style={{ gap: 12 }}>
                   <div style={{ flex: 1 }}>
                     <label className="small">ID de sucursal</label>
-                    <input
-                      className="input"
-                      placeholder="Ej: CA-0001"
-                      value={branchId}
-                      onChange={(e)=>setBranchId(e.target.value)}
-                    />
+                    <input className="input" placeholder="Ej: CA-0001" value={branchId} onChange={(e)=>setBranchId(e.target.value)} />
                   </div>
                   <div style={{ flex: 2 }}>
                     <label className="small">Nombre de la sucursal</label>
-                    <input
-                      className="input"
-                      placeholder="Ej: Sucursal Centro"
-                      value={branchName}
-                      onChange={(e)=>setBranchName(e.target.value)}
-                    />
+                    <input className="input" placeholder="Ej: Sucursal Centro" value={branchName} onChange={(e)=>setBranchName(e.target.value)} />
                   </div>
                 </div>
-
                 <div className="mt">
                   <label className="small">Dirección (opcional)</label>
-                  <input
-                    className="input"
-                    placeholder="Calle y altura"
-                    value={branchAddress}
-                    onChange={(e)=>setBranchAddress(e.target.value)}
-                  />
+                  <input className="input" placeholder="Calle y altura" value={branchAddress} onChange={(e)=>setBranchAddress(e.target.value)} />
                 </div>
-
                 <div className="mt row" style={{ gap: 12 }}>
                   <div style={{ flex: 1 }}>
                     <label className="small">Ciudad</label>
-                    <input
-                      className="input"
-                      value={branchCity}
-                      onChange={(e)=>setBranchCity(e.target.value)}
-                    />
+                    <input className="input" value={branchCity} onChange={(e)=>setBranchCity(e.target.value)} />
                   </div>
                   <div style={{ flex: 1 }}>
                     <label className="small">Provincia</label>
-                    <input
-                      className="input"
-                      value={branchState}
-                      onChange={(e)=>setBranchState(e.target.value)}
-                    />
+                    <input className="input" value={branchState} onChange={(e)=>setBranchState(e.target.value)} />
                   </div>
                   <div style={{ flex: 1 }}>
                     <label className="small">CP (opcional)</label>
-                    <input
-                      className="input"
-                      value={branchZip}
-                      onChange={(e)=>setBranchZip(e.target.value)}
-                    />
+                    <input className="input" value={branchZip} onChange={(e)=>setBranchZip(e.target.value)} />
                   </div>
                 </div>
               </div>
@@ -496,11 +402,7 @@ export default function Checkout() {
               <div className="row" style={{ gap: 12, marginTop: 8 }}>
                 <div style={{ flex: 1 }}>
                   <label className="small">Método de pago</label>
-                  <select
-                    className="input"
-                    value={pay}
-                    onChange={(e) => setPay(e.target.value)}
-                  >
+                  <select className="input" value={pay} onChange={(e) => setPay(e.target.value)}>
                     <option value="transferencia">Transferencia</option>
                     <option value="mp">Mercado Pago</option>
                   </select>
@@ -513,22 +415,10 @@ export default function Checkout() {
               </div>
 
               {/* DNI solo transferencia */}
-              <div
-                style={{
-                  overflow: 'hidden',
-                  maxHeight: pay === 'transferencia' ? 160 : 0,
-                  opacity: pay === 'transferencia' ? 1 : 0,
-                  transition: 'all .25s ease',
-                }}
-              >
+              <div style={{ overflow: 'hidden', maxHeight: pay === 'transferencia' ? 160 : 0, opacity: pay === 'transferencia' ? 1 : 0, transition: 'all .25s ease' }}>
                 <div className="mt">
                   <label className="small">DNI del ordenante (obligatorio)</label>
-                  <input
-                    className="input"
-                    placeholder="30123456"
-                    value={shipDni}
-                    onChange={(e)=>setShipDni(e.target.value)}
-                  />
+                  <input className="input" placeholder="30123456" value={shipDni} onChange={(e)=>setShipDni(e.target.value)} />
                   <div className="small" style={{ color: 'var(--muted)', marginTop: 6 }}>
                     Luego de confirmar, subí el comprobante en el chat del pedido.
                   </div>
@@ -538,12 +428,7 @@ export default function Checkout() {
 
             {/* Confirmar */}
             <div className="mt">
-              <button
-                className="btn"
-                onClick={confirmOrder}
-                disabled={busy || cart.length === 0 || !shipping}
-                style={{ width: '100%', transition: 'transform .2s ease, opacity .2s ease' }}
-              >
+              <button className="btn" onClick={confirmOrder} disabled={busy || cart.length === 0 || !shipping} style={{ width: '100%', transition: 'transform .2s ease, opacity .2s ease' }}>
                 {busy ? 'Procesando…' : 'Confirmar pedido'}
               </button>
               {cart.length === 0 && (
@@ -555,17 +440,7 @@ export default function Checkout() {
           </div>
 
           {/* Columna derecha (Resumen) */}
-          <div
-            className="card"
-            style={{
-              padding: 16,
-              background: 'rgba(17,18,26,0.92)',
-              borderColor: 'var(--line)',
-              position: 'sticky',
-              top: 16,
-              alignSelf: 'start',
-            }}
-          >
+          <div className="card" style={{ padding: 16, background: 'rgba(17,18,26,0.92)', borderColor: 'var(--line)', position: 'sticky', top: 16, alignSelf: 'start' }}>
             <strong>Resumen</strong>
             <div className="mt" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {cart.length === 0 ? (
@@ -581,23 +456,13 @@ export default function Checkout() {
             </div>
 
             <div className="mt">
-              <div className="row">
-                <span>Subtotal</span>
-                <span>${subtotal}</span>
-              </div>
-              <div className="row">
-                <span>Envío</span>
-                <span>${shipCost}</span>
-              </div>
+              <div className="row"><span>Subtotal</span><span>${subtotal}</span></div>
+              <div className="row"><span>Envío</span><span>${shipCost}</span></div>
               {pay === 'mp' && (
-                <div className="row">
-                  <span>Recargo MP</span>
-                  <span>${mpFee}</span>
-                </div>
+                <div className="row"><span>Recargo MP</span><span>${mpFee}</span></div>
               )}
               <div className="row" style={{ fontWeight: 900 }}>
-                <span>Total</span>
-                <span>${total}</span>
+                <span>Total</span><span>${total}</span>
               </div>
             </div>
           </div>
