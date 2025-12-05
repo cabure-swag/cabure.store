@@ -9,40 +9,38 @@ export default async function handler(req, res) {
       return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // ── Chequeo de envs mínimas ───────────────────────────────────────────────
     const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || '').replace(/\/$/, '');
     const admin = getSupaAdmin();
+
     if (!admin) {
       return res.status(500).json({
-        error: 'Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en las env vars del deploy.',
+        error: 'Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en el deploy.',
       });
     }
     if (!siteUrl) {
       return res.status(500).json({
-        error: 'Falta NEXT_PUBLIC_SITE_URL en las env vars del deploy.',
+        error: 'Falta NEXT_PUBLIC_SITE_URL en el deploy.',
       });
     }
 
-    // ── Body ──────────────────────────────────────────────────────────────────
+    // --- Body ---
     const {
       brand_slug,
       items = [],
-      shipping = 0,        // número (costo)
+      shipping = 0,
       payer = {},
       buyer_id = null,
-      back_urls = {},
-      order_draft = null,  // ⬅️ NUEVO: viene desde el checkout (datos para crear el pedido en el webhook)
+      order_draft = null,  // nombre correcto
       debug = false,
     } = req.body || {};
 
-    if (!brand_slug || !Array.isArray(items)) {
-      return res.status(400).json({ error: 'Faltan brand_slug o items' });
-    }
+    if (!brand_slug) return res.status(400).json({ error: 'brand_slug requerido' });
+    if (!Array.isArray(items)) return res.status(400).json({ error: 'items inválidos' });
     if (items.length === 0 && !shipping) {
       return res.status(400).json({ error: 'No hay ítems ni envío' });
     }
 
-    // ── Marca (token y fee) ───────────────────────────────────────────────────
+    // --- Marca ---
     const { data: brand, error: eBrand } = await admin
       .from('brands')
       .select('slug,name,mp_fee,mp_access_token')
@@ -54,34 +52,39 @@ export default async function handler(req, res) {
         error: `Error leyendo marca: ${eBrand.message || String(eBrand)}`,
       });
     }
-    if (!brand) {
-      return res.status(400).json({ error: 'Marca inválida' });
-    }
+    if (!brand) return res.status(400).json({ error: 'Marca inválida' });
     if (!brand.mp_access_token) {
       return res.status(400).json({ error: 'La marca no tiene configurado su MP access token' });
     }
 
-    // ── Ítems + envío + recargo ───────────────────────────────────────────────
-    const mpFeePct = Number(brand.mp_fee) || 0;
-
+    // --- Ítems + Envío (sin duplicar recargo MP) ---
     const merged = [...items];
     const shipNum = Number(shipping) || 0;
-    if (shipNum > 0) merged.push({ id: 'shipping', title: 'Envío', quantity: 1, unit_price: shipNum });
+    if (shipNum > 0) {
+      merged.push({
+        id: 'shipping',
+        title: 'Envío',
+        quantity: 1,
+        unit_price: shipNum
+      });
+    }
 
-    const normItems = merged.map((it) => {
-      const price = Number(it.unit_price) || 0;
-      const qty = Math.max(1, Number(it.quantity) || 1);
-      const priceWithFee = mpFeePct > 0 ? +(price * (1 + mpFeePct / 100)).toFixed(2) : price;
-      return {
-        id: String(it.id ?? ''),
-        title: String(it.title ?? 'Item'),
-        quantity: qty,
-        unit_price: priceWithFee,
-        currency_id: 'ARS',
-      };
+    const normItems = merged.map((it) => ({
+      id: String(it.id ?? ''),
+      title: String(it.title ?? 'Item'),
+      quantity: Math.max(1, Number(it.quantity) || 1),
+      unit_price: Number(it.unit_price) || 0,
+      currency_id: 'ARS',
+    }));
+
+    // --- external_reference EXACTO como espera webhook ---
+    const external_reference = JSON.stringify({
+      buyer_id,
+      brand_slug,
+      order_draft: order_draft || null
     });
 
-    // ── Preferencia MP ────────────────────────────────────────────────────────
+    // --- Preferencia MP ---
     const prefBody = {
       items: normItems,
       payer: {
@@ -89,19 +92,17 @@ export default async function handler(req, res) {
         name: payer?.name || undefined,
       },
       statement_descriptor: (brand.name || 'CABURE').slice(0, 22),
+
+      // acá corregimos el redirect
       back_urls: {
-        success: back_urls?.success || `${siteUrl}/checkout/result?status=success`,
-        failure: back_urls?.failure || `${siteUrl}/checkout/result?status=failure`,
-        pending: back_urls?.pending || `${siteUrl}/checkout/result?status=pending`,
+        success: `${siteUrl}/compras`,
+        failure: `${siteUrl}/compras`,
+        pending: `${siteUrl}/compras`,
       },
+
       auto_return: 'approved',
-      // ⬇️ Guardamos TODO lo que necesitamos para crear el pedido en el webhook
-      external_reference: JSON.stringify({
-        brand_slug,
-        buyer_id,
-        mp_fee: mpFeePct,
-        order_draft: order_draft || null,
-      }),
+
+      external_reference,
       notification_url: `${siteUrl}/api/mp/webhook?brand=${encodeURIComponent(brand_slug)}`,
     };
 
@@ -123,6 +124,7 @@ export default async function handler(req, res) {
         (pref && (pref.message || pref.error || pref.cause?.[0]?.description)) ||
         raw ||
         'MP preference error';
+
       return res.status(resp.status).json({
         error: msg,
         ...(debug ? { debug: { status: resp.status, siteUrl, hasToken: !!brand.mp_access_token } } : {}),
@@ -133,9 +135,8 @@ export default async function handler(req, res) {
       id: pref.id,
       init_point: pref.init_point,
       sandbox_init_point: pref.sandbox_init_point,
-      mp_fee_applied_pct: mpFeePct,
-      items: normItems,
     });
+
   } catch (err) {
     return res.status(500).json({ error: String(err?.message || err) });
   }
